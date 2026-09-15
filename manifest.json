@@ -1,0 +1,16 @@
+{
+  "name": "PPEPlan",
+  "short_name": "PPEPlan",
+  "description": "Gestao de atividades PPE — sincronizada via Google Drive",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#C73943",
+  "background_color": "#EEF0F3",
+  "lang": "pt-PT",
+  "icons": [
+    { "src": "favicon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
