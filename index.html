@@ -573,12 +573,15 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.6";
-const APP_PUBLISHED = "15/09/2026 23:21";
+const APP_VERSION = "2.7";
+const APP_PUBLISHED = "16/09/2026 00:32";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
-const SCOPES = "https://www.googleapis.com/auth/drive.file";
+// openid/email: saber a conta usada, para a renovação silenciosa não ter de adivinhar
+const SCOPES = "openid email https://www.googleapis.com/auth/drive.file";
+const TOKEN_KEY = "ppeplan-token";
+const EMAIL_KEY = "ppeplan-account-email";
 const FILE_NAME = "ppeplan-data.json";
 
 // alerts: lido pelo PPEPlan instalado no Windows (instalador/scripts) — emails e notificações
@@ -599,6 +602,7 @@ function mergeSettings(s) {
 }
 let state = { tasks: [], settings: mergeSettings({}), view: "list", calendarWeekStart: null, editingId: null, newTaskPriority: 3, editTaskPriority: 3 };
 let accessToken = null, driveFileId = null, tokenClient = null, saveTimer = null, lastFileSavedAt = null, lastDriveModified = null, localEditSeq = 0, syncStatus = "local";
+let tokenExpiresAt = 0, renewTimer = null, lastSilentAuth = 0, hasLocalChanges = false;
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -666,49 +670,94 @@ function computeSchedule(tasks, settings) {
 function saveLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify({tasks:state.tasks, settings:state.settings, savedAt:new Date().toISOString()})); }
 function loadLocal() { const r=localStorage.getItem(STORAGE_KEY); if(!r) return false; try { const d=JSON.parse(r); if(d.tasks) state.tasks=d.tasks; if(d.settings) state.settings=mergeSettings(d.settings); return true; } catch(e) { return false; } }
 
+// O token da Google dura 1 hora. Fica em localStorage (sobrevive a fechar a app) e é
+// renovado em silêncio antes de expirar, com a conta conhecida (hint) para a Google não
+// ter de perguntar. Só quando a sessão Google do browser não chega é preciso um clique.
+function saveToken(r) {
+  accessToken = r.access_token;
+  tokenExpiresAt = Date.now() + (Number(r.expires_in || 3600) - 60) * 1000;
+  try { localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: accessToken, exp: tokenExpiresAt })); } catch(e) {}
+  scheduleTokenRenewal();
+  if (!localStorage.getItem(EMAIL_KEY)) fetchAccountEmail();
+}
+function loadToken() {
+  try {
+    const d = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
+    if (d && d.token && d.exp - Date.now() > 120000) { accessToken = d.token; tokenExpiresAt = d.exp; scheduleTokenRenewal(); return true; }
+  } catch(e) {}
+  return false;
+}
+function clearToken() { accessToken = null; tokenExpiresAt = 0; clearTimeout(renewTimer); try { localStorage.removeItem(TOKEN_KEY); } catch(e) {} }
+function scheduleTokenRenewal() {
+  clearTimeout(renewTimer);
+  renewTimer = setTimeout(() => attemptSilentAuth(), Math.max(5000, tokenExpiresAt - Date.now() - 5*60*1000));
+}
+async function fetchAccountEmail() {
+  try {
+    const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + accessToken } });
+    if (r.ok) { const d = await r.json(); if (d.email) localStorage.setItem(EMAIL_KEY, d.email); }
+  } catch(e) {}
+}
 function initGIS() {
   if (typeof google === "undefined" || !google.accounts) { setTimeout(initGIS, 200); return; }
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID, scope: SCOPES,
     callback: async (r) => {
       if (r.error) { setSyncStatus("local"); return; }
-      accessToken = r.access_token;
-      sessionStorage.setItem("ppeplan-access-token", accessToken);
+      saveToken(r);
       localStorage.setItem("ppeplan-signed-in", "1");
       await onSignedIn();
     }
   });
-  const savedToken = sessionStorage.getItem("ppeplan-access-token");
   const wasSignedIn = localStorage.getItem("ppeplan-signed-in") === "1";
-  if (savedToken) {
-    accessToken = savedToken;
-    onSignedIn().catch(() => { accessToken=null; sessionStorage.removeItem("ppeplan-access-token"); attemptSilentAuth(); });
+  if (loadToken()) {
+    onSignedIn().catch(() => { clearToken(); attemptSilentAuth(); });
   } else if (wasSignedIn) {
-    // Tenta autenticação silenciosa SEM popup (prompt:"none")
-    // Se falhar silenciosamente, fica "Local" e user clica pill para forçar
     attemptSilentAuth();
   } else {
     setSyncStatus("local");
   }
 }
+// Sem popup: só funciona se a sessão Google do browser chegar
 function attemptSilentAuth() {
   if (!tokenClient) { setSyncStatus("local"); return; }
-  setSyncStatus("dirty");
-  try { tokenClient.requestAccessToken({ prompt: "none" }); }
+  if (Date.now() - lastSilentAuth < 30000) return;
+  lastSilentAuth = Date.now();
+  if (!accessToken) setSyncStatus("dirty");
+  const hint = localStorage.getItem(EMAIL_KEY);
+  try { tokenClient.requestAccessToken(hint ? { prompt: "none", hint } : { prompt: "none" }); }
   catch (e) { setSyncStatus("local"); }
-  // Timeout: se não responder em 5s, assume falha silenciosa
   setTimeout(() => { if (!accessToken) setSyncStatus("local"); }, 5000);
 }
-function signIn() { if (!tokenClient) { toast("A carregar...", "error"); return; } tokenClient.requestAccessToken({}); }
-function signOut() { if (accessToken && google.accounts) google.accounts.oauth2.revoke(accessToken, ()=>{}); accessToken=null; driveFileId=null; sessionStorage.removeItem("ppeplan-access-token"); localStorage.removeItem(DRIVE_FILE_ID_KEY); localStorage.removeItem("ppeplan-signed-in"); showWelcome(); toast("Sessão terminada"); }
+// Ao voltar à app: renova antes de expirar, ou tenta ligar outra vez
+function refreshAuthIfNeeded() {
+  if (!localStorage.getItem("ppeplan-signed-in")) return;
+  if (!accessToken || tokenExpiresAt - Date.now() < 10*60*1000) attemptSilentAuth();
+}
+function signIn() {
+  if (!tokenClient) { toast("A carregar...", "error"); return; }
+  lastSilentAuth = 0;
+  const hint = localStorage.getItem(EMAIL_KEY);
+  tokenClient.requestAccessToken(hint ? { hint } : {});
+}
+function signOut() { if (accessToken && google.accounts) google.accounts.oauth2.revoke(accessToken, ()=>{}); clearToken(); driveFileId=null; localStorage.removeItem(DRIVE_FILE_ID_KEY); localStorage.removeItem("ppeplan-signed-in"); localStorage.removeItem(EMAIL_KEY); showWelcome(); toast("Sessão terminada"); }
 async function driveCall(url, opts={}) {
   if (!accessToken) throw new Error("Não autenticado");
   const res = await fetch(url, {...opts, headers: {"Authorization":"Bearer "+accessToken, ...(opts.headers||{})}});
   if (res.status === 401) {
-    accessToken = null; sessionStorage.removeItem("ppeplan-access-token");
+    clearToken();
+    // Renova em silêncio e repete o pedido; repõe o callback normal no fim
     return new Promise(resolve => {
-      tokenClient.callback = async r => { if (r.error) { resolve(res); return; } accessToken=r.access_token; sessionStorage.setItem("ppeplan-access-token", accessToken); const retry = await fetch(url, {...opts, headers:{"Authorization":"Bearer "+accessToken, ...(opts.headers||{})}}); resolve(retry); };
-      tokenClient.requestAccessToken({ prompt: "none" });
+      const original = tokenClient.callback;
+      const done = r => { tokenClient.callback = original; return r; };
+      tokenClient.callback = async r => {
+        if (r.error) { done(); resolve(res); return; }
+        saveToken(r); done();
+        resolve(await fetch(url, {...opts, headers:{"Authorization":"Bearer "+accessToken, ...(opts.headers||{})}}));
+      };
+      const hint = localStorage.getItem(EMAIL_KEY);
+      tokenClient.requestAccessToken(hint ? { prompt: "none", hint } : { prompt: "none" });
+      setTimeout(() => { if (tokenClient.callback !== original) { done(); resolve(res); } }, 8000);
     });
   }
   return res;
@@ -725,13 +774,21 @@ async function findOrCreateDriveFile() {
   const cr = await driveCall("https://www.googleapis.com/drive/v3/files", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:FILE_NAME, mimeType:"application/json"}) });
   if (cr.ok) { const d = await cr.json(); driveFileId = d.id; localStorage.setItem(DRIVE_FILE_ID_KEY, driveFileId); } else throw new Error("Falhou criar ficheiro");
 }
-async function loadFromDrive() {
-  if (!driveFileId) return false;
+async function fetchDriveData() {
+  if (!driveFileId) return null;
   const r = await driveCall(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
-  if (!r.ok) return false;
-  const t = await r.text(); if (!t.trim()) return false;
-  try { const d = JSON.parse(t); if (d.tasks) state.tasks = d.tasks; if (d.settings) state.settings = mergeSettings(d.settings); if (d.savedAt) lastFileSavedAt = d.savedAt; saveLocal(); return true; } catch(e) { return false; }
+  if (!r.ok) return null;
+  const t = await r.text(); if (!t.trim()) return null;
+  try { return JSON.parse(t); } catch(e) { return null; }
 }
+function applyDriveData(d) {
+  if (d.tasks) state.tasks = d.tasks;
+  if (d.settings) state.settings = mergeSettings(d.settings);
+  if (d.savedAt) lastFileSavedAt = d.savedAt;
+  hasLocalChanges = false;
+  saveLocal();
+}
+async function loadFromDrive() { const d = await fetchDriveData(); if (!d) return false; applyDriveData(d); return true; }
 async function saveToDrive() {
   if (!driveFileId || !accessToken) return;
   setSyncStatus("dirty");
@@ -739,7 +796,7 @@ async function saveToDrive() {
   const payload = { tasks: state.tasks, settings: state.settings, savedAt };
   try {
     const r = await driveCall(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media&fields=modifiedTime`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload, null, 2) });
-    if (r.ok) { lastFileSavedAt = savedAt; try { const m = await r.json(); if (m.modifiedTime) lastDriveModified = m.modifiedTime; } catch(e){} setSyncStatus("saved"); } else { setSyncStatus("error"); toast("Erro: status "+r.status, "error"); }
+    if (r.ok) { lastFileSavedAt = savedAt; hasLocalChanges = false; try { const m = await r.json(); if (m.modifiedTime) lastDriveModified = m.modifiedTime; } catch(e){} setSyncStatus("saved"); } else { setSyncStatus("error"); toast("Erro: status "+r.status, "error"); }
   } catch(e) { setSyncStatus("error"); toast("Erro: "+e.message, "error"); }
 }
 async function reloadFromDriveIfNewer() {
@@ -762,14 +819,20 @@ async function reloadFromDriveIfNewer() {
   } catch(e){}
   return false;
 }
-function scheduleSave() { localEditSeq++; saveLocal(); if (accessToken && driveFileId) { setSyncStatus("dirty"); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(()=>{ saveTimer=null; saveToDrive(); }, 400); } else setSyncStatus("local"); }
+function scheduleSave() { localEditSeq++; saveLocal(); if (accessToken && driveFileId) { setSyncStatus("dirty"); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(()=>{ saveTimer=null; saveToDrive(); }, 400); } else { hasLocalChanges = true; setSyncStatus("local"); refreshAuthIfNeeded(); } }
 async function onSignedIn() {
   setSyncStatus("dirty");
   try {
     await findOrCreateDriveFile();
-    const loaded = await loadFromDrive();
-    if (loaded) { render(); setSyncStatus("saved"); }
-    else { if (state.tasks.length > 0) await saveToDrive(); else { if (confirm("Drive vazio. Importar de um JSON existente?")) $("#import-file").click(); else setSyncStatus("saved"); } }
+    const remote = await fetchDriveData();
+    // Alterações feitas sem ligação só substituem o Drive se forem mais recentes
+    let localSavedAt = null;
+    try { localSavedAt = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}").savedAt || null; } catch(e) {}
+    const localIsNewer = hasLocalChanges && localSavedAt && (!remote || !remote.savedAt || localSavedAt > remote.savedAt);
+    if (remote && !localIsNewer) { applyDriveData(remote); render(); setSyncStatus("saved"); }
+    else if (state.tasks.length > 0) { await saveToDrive(); render(); }
+    else if (confirm("Drive vazio. Importar de um JSON existente?")) $("#import-file").click();
+    else setSyncStatus("saved");
   } catch(e) { toast("Erro ao ligar ao Drive: "+e.message, "error"); setSyncStatus("error"); }
 }
 function showWelcome() {
@@ -782,8 +845,12 @@ function setSyncStatus(s) {
   p.classList.remove("dirty","local","error");
   if(s==="saved") { t.textContent="Sincronizado"; if(banner) banner.classList.remove("show"); }
   else if(s==="dirty"){t.textContent="A gravar..."; p.classList.add("dirty"); if(banner) banner.classList.remove("show"); }
-  else if(s==="error"){t.textContent="Erro"; p.classList.add("error"); if(banner && localStorage.getItem("ppeplan-banner-dismissed")!=="1") banner.classList.add("show"); }
-  else {t.textContent="Local"; p.classList.add("local"); if(banner && localStorage.getItem("ppeplan-banner-dismissed")!=="1") banner.classList.add("show"); }
+  // A barra só aparece quando há alterações por gravar no Drive: sem isso, basta o indicador
+  else {
+    const show = banner && hasLocalChanges && localStorage.getItem("ppeplan-banner-dismissed") !== "1";
+    if (s === "error") { t.textContent = "Erro"; p.classList.add("error"); } else { t.textContent = "Local"; p.classList.add("local"); }
+    if (banner) banner.classList.toggle("show", !!show);
+  }
 }
 
 function addTask({title, description, deadline, estimatedHours, manualPriority, assignee}) { state.tasks.push({id:uid(), title, description:description||"", deadline, estimatedHours:parseFloat(estimatedHours), manualPriority:parseInt(manualPriority,10), assignee:(assignee||"").trim()||null, status:"pending", createdAt:new Date().toISOString(), manualOrder:null}); scheduleSave(); render(); }
@@ -1438,8 +1505,9 @@ function init() {
   document.addEventListener("keydown", e=>{if(e.key==="Escape"){$("#edit-modal").classList.remove("active"); $("#settings-modal").classList.remove("active");} if((e.ctrlKey||e.metaKey)&&e.key==="n"){e.preventDefault(); if($("#app-main").style.display!=="none") $("#t-title").focus();}});
   render();
   initGIS();
-  window.addEventListener("focus", ()=>{if(accessToken) reloadFromDriveIfNewer();});
-  document.addEventListener("visibilitychange", ()=>{if(document.visibilityState==="visible" && accessToken) reloadFromDriveIfNewer();});
+  window.addEventListener("focus", ()=>{ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); });
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"){ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); } });
+  window.addEventListener("online", ()=>{ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); });
   window.addEventListener("beforeunload", ()=>{if(saveTimer){clearTimeout(saveTimer); saveToDrive();}});
 
   // Paste (Ctrl+V) de imagens — funciona quando edit-modal ou drilldown estão ativos
