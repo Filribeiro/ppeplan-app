@@ -512,6 +512,7 @@
       <div class="sidebar-divider"></div>
       <h3>Dicas</h3>
       <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Arrasta uma tarefa na <b>Lista</b> para fixar posição. Duplo clique para editar. Dados sincronizados via Google Drive.</div>
+      <div class="app-version" style="font-size:11px;color:var(--text-muted);margin-top:16px;opacity:.8"></div>
     </aside>
     <section class="content" id="content"></section>
   </main>
@@ -535,7 +536,7 @@
     <div class="settings-row"><div><div class="settings-label">Exportar dados</div></div><button class="btn-secondary" id="s-export">Exportar</button></div>
     <div class="settings-row"><div><div class="settings-label">Importar dados</div></div><button class="btn-secondary" id="s-import">Importar</button></div>
     <div class="settings-row"><div><div class="settings-label">Terminar sessão Google</div></div><button class="btn-secondary" id="s-signout">Terminar</button></div>
-    <div class="modal-actions"><button class="btn-secondary" id="s-close">Fechar</button></div>
+    <div class="modal-actions" style="justify-content:space-between;align-items:center"><span class="app-version" style="font-size:11px;color:var(--text-muted)"></span><button class="btn-secondary" id="s-close">Fechar</button></div>
   </div>
 </div>
 
@@ -571,6 +572,9 @@
 <input type="file" id="attachment-file" accept="image/*" style="display:none" />
 
 <script>
+// Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
+const APP_VERSION = "2.5";
+const APP_PUBLISHED = "15/09/2026 23:15";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -1454,6 +1458,8 @@ function init() {
     }
   });
   registerServiceWorker();
+  const versionText = APP_VERSION === "dev" ? "PPEPlan · versão de desenvolvimento" : `PPEPlan ${APP_VERSION} · atualizado a ${APP_PUBLISHED}`;
+  $$(".app-version").forEach(el => el.textContent = versionText);
 }
 // Atualizações: quando é publicada uma versão nova, o service worker muda e toma conta da
 // página (controllerchange). Se a app já estava aberta, mostra a barra para recarregar.

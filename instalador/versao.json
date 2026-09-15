@@ -1,6 +1,11 @@
 {
-    "published":  "2026-09-15 23:07",
+    "published":  "2026-09-15 23:15",
     "commit":  "592a2c0",
+    "app":  {
+                "build":  "F30886889EBD",
+                "version":  "2.5",
+                "published":  "15/09/2026 23:15"
+            },
     "files":  {
                   "PPEPlan-Notify.ps1":  "D551C5E111BDEE5DEDA3F6596C2ADE64850BE2555EB6B833FE6C2ACBD07E9688",
                   "PPEPlan-Common.ps1":  "00C65B491AC43CE89E7E97A6B29E5A90FED687D9B7D7729C4DA299B7FFB29EBD",
