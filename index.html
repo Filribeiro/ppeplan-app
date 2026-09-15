@@ -566,7 +566,7 @@ const FILE_NAME = "ppeplan-data.json";
 
 const defaultSettings = { dailyHours: 8, workWeekends: false, weights: { deadline: 0.40, slack: 0.35, priority: 0.25 } };
 let state = { tasks: [], settings: { ...defaultSettings }, view: "list", calendarWeekStart: null, editingId: null, newTaskPriority: 3, editTaskPriority: 3 };
-let accessToken = null, driveFileId = null, tokenClient = null, saveTimer = null, lastFileSavedAt = null, syncStatus = "local";
+let accessToken = null, driveFileId = null, tokenClient = null, saveTimer = null, lastFileSavedAt = null, lastDriveModified = null, localEditSeq = 0, syncStatus = "local";
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -706,21 +706,31 @@ async function saveToDrive() {
   const savedAt = new Date().toISOString();
   const payload = { tasks: state.tasks, settings: state.settings, savedAt };
   try {
-    const r = await driveCall(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload, null, 2) });
-    if (r.ok) { lastFileSavedAt = savedAt; setSyncStatus("saved"); } else { setSyncStatus("error"); toast("Erro: status "+r.status, "error"); }
+    const r = await driveCall(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media&fields=modifiedTime`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload, null, 2) });
+    if (r.ok) { lastFileSavedAt = savedAt; try { const m = await r.json(); if (m.modifiedTime) lastDriveModified = m.modifiedTime; } catch(e){} setSyncStatus("saved"); } else { setSyncStatus("error"); toast("Erro: status "+r.status, "error"); }
   } catch(e) { setSyncStatus("error"); toast("Erro: "+e.message, "error"); }
 }
 async function reloadFromDriveIfNewer() {
   if (!driveFileId || !accessToken || saveTimer) return false;
+  // Se houver alterações locais (ex.: importação) enquanto se consulta o Drive, não as substitui
+  const seq = localEditSeq;
+  const editedMeanwhile = () => saveTimer || seq !== localEditSeq;
   try {
     const r = await driveCall(`https://www.googleapis.com/drive/v3/files/${driveFileId}?fields=modifiedTime`);
     if (!r.ok) return false; const m = await r.json();
-    if (!m.modifiedTime) return false; if (lastFileSavedAt && m.modifiedTime <= lastFileSavedAt) return false;
-    if (await loadFromDrive()) { render(); toast("Atualizado a partir do Drive"); return true; }
+    if (!m.modifiedTime || editedMeanwhile()) return false;
+    // modifiedTime do Drive é sempre um pouco posterior ao savedAt: comparar com o modifiedTime conhecido
+    if (lastDriveModified ? m.modifiedTime <= lastDriveModified : (lastFileSavedAt && m.modifiedTime <= lastFileSavedAt)) return false;
+    if (!lastDriveModified && !lastFileSavedAt) { lastDriveModified = m.modifiedTime; return false; }
+    const prev = { tasks: state.tasks, settings: state.settings };
+    if (await loadFromDrive()) {
+      if (editedMeanwhile()) { state.tasks = prev.tasks; state.settings = prev.settings; saveLocal(); return false; }
+      lastDriveModified = m.modifiedTime; render(); toast("Atualizado a partir do Drive"); return true;
+    }
   } catch(e){}
   return false;
 }
-function scheduleSave() { saveLocal(); if (accessToken && driveFileId) { setSyncStatus("dirty"); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(()=>{ saveTimer=null; saveToDrive(); }, 400); } else setSyncStatus("local"); }
+function scheduleSave() { localEditSeq++; saveLocal(); if (accessToken && driveFileId) { setSyncStatus("dirty"); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(()=>{ saveTimer=null; saveToDrive(); }, 400); } else setSyncStatus("local"); }
 async function onSignedIn() {
   setSyncStatus("dirty");
   try {
