@@ -485,6 +485,10 @@
       <button class="btn-ghost" id="btn-settings" title="Definições">⚙</button>
     </div>
   </header>
+  <div class="sync-banner" id="update-banner">
+    <span>✨ Há uma versão nova do PPEPlan</span>
+    <button id="update-reload">Atualizar</button>
+  </div>
   <div class="sync-banner" id="sync-banner">
     <span>⚠ Não sincronizado — podes estar a ver dados desatualizados</span>
     <div style="display:flex;gap:6px;align-items:center">
@@ -1449,7 +1453,26 @@ function init() {
       }
     }
   });
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("service-worker.js").catch(()=>{});
+  registerServiceWorker();
+}
+// Atualizações: quando é publicada uma versão nova, o service worker muda e toma conta da
+// página (controllerchange). Se a app já estava aberta, mostra a barra para recarregar.
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  // 1.ª instalação de sempre também dispara controllerchange: essa não é "versão nova"
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) $("#update-banner").classList.add("show"); hadController = true; });
+  $("#update-reload").addEventListener("click", async () => {
+    // Não perder uma gravação pendente
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await saveToDrive(); }
+    location.reload();
+  });
+  navigator.serviceWorker.register("service-worker.js").then(reg => {
+    let lastCheck = Date.now();
+    const check = () => { if (Date.now() - lastCheck < 10*60*1000) return; lastCheck = Date.now(); reg.update().catch(()=>{}); };
+    setInterval(() => reg.update().catch(()=>{}), 60*60*1000);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+  }).catch(()=>{});
 }
 document.addEventListener("DOMContentLoaded", init);
 </script>

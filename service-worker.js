@@ -1,8 +1,12 @@
 // PPEPlan Service Worker
-// Cacheia o app shell (HTML, manifest, ícones) para funcionar offline.
+// Rede primeiro: cada abertura usa a versão publicada mais recente;
+// sem rede, usa a última cópia guardada (funciona offline).
 // Não cacheia chamadas à API do Google — essas precisam sempre de rede.
 
-const CACHE_NAME = "ppeplan-v24-alert-settings";
+// Substituído pelo Publicar-App.ps1 em cada publicação com alterações à app:
+// muda os bytes deste ficheiro e a app mostra "Há uma versão nova".
+const BUILD = "C5BCD4E5A7B4";
+const CACHE_NAME = "ppeplan-shell";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -13,11 +17,12 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return Promise.all(APP_SHELL.map((url) =>
-        cache.add(url).catch((err) => console.warn("SW cache miss:", url, err))
-      ));
-    })
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(APP_SHELL.map((url) =>
+        fetch(url, { cache: "no-cache" }).then((r) => { if (r.ok) return cache.put(url, r); })
+          .catch((err) => console.warn("SW cache miss:", url, err))
+      ))
+    )
   );
   self.skipWaiting();
 });
@@ -35,26 +40,23 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
+  // Google (auth + Drive API) e outros domínios: direto à rede, sem cache
+  if (url.origin !== self.location.origin) return;
 
-  // Chamadas Google (auth + Drive API) sempre online, sem cache
-  if (url.hostname.includes("googleapis.com") || url.hostname.includes("accounts.google.com") || url.hostname.includes("google.com")) {
-    return;
-  }
-
-  // App shell e recursos locais: cache-first, fallback rede
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((response) => {
-        if (response && response.status === 200 && url.origin === self.location.origin) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
-        }
-        return response;
-      }).catch(() => {
+    // no-cache: revalida com o servidor (evita os 10 min de cache HTTP do GitHub Pages)
+    fetch(req.url, { cache: "no-cache", credentials: "same-origin" }).then((response) => {
+      if (response && response.status === 200) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req.url, clone));
+      }
+      return response;
+    }).catch(() =>
+      caches.match(req.url).then((cached) => {
+        if (cached) return cached;
         if (req.mode === "navigate") return caches.match("./index.html");
         return new Response("", { status: 504 });
-      });
-    })
+      })
+    )
   );
 });

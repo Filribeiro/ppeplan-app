@@ -1,0 +1,264 @@
+﻿# ============================================================
+#  PPEPlan — emails diários
+#  -Slot Morning  Tarefas de hoje
+#  -Slot Evening  Resumo do dia + plano do próximo dia útil
+#  (horas e ligar/desligar: Definições da app; chamado pelo PPEPlan-Agendador.ps1)
+#  -Preview  Gera o HTML em %LOCALAPPDATA%\PPEPlan\email-preview.html e abre-o (não envia)
+#  -Force    Envia mesmo que já tenha sido enviado hoje / fim de semana / fora de horas
+#            (conta como o email desse dia: o envio automático já não repete)
+#
+#  Envia pela Gmail API com a conta Google do PC. Com vários PCs na mesma
+#  conta, o registo de envio fica no Drive (ppeplan-emails-enviados.json)
+#  para só um deles enviar.
+# ============================================================
+param(
+    [ValidateSet('Morning', 'Evening')] [string]$Slot = 'Morning',
+    [switch]$Preview,
+    [switch]$Force
+)
+
+. (Join-Path $PSScriptRoot 'PPEPlan-Common.ps1')
+
+function New-PPEEmailHtml {
+    param($Plan, $Config, [string]$Slot = 'Morning', $NextPlan)
+
+    $h = { param($s) [Net.WebUtility]::HtmlEncode([string]$s) }
+    $red = '#C73943'; $text = '#1B1F2A'; $muted = '#5B6770'; $border = '#E4E7EB'; $green = '#4F7A4E'
+    $sb = New-Object System.Text.StringBuilder
+    $cap = { param($s) $s.Substring(0, 1).ToUpper() + $s.Substring(1) }
+
+    $badge = {
+        param($label, $fg, $bg)
+        "<span style=`"display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;color:$fg;background:$bg`">$(& $h $label)</span>"
+    }
+    $deadlineBadge = {
+        param($it)
+        $label = Get-PPEDeadlineLabel $it
+        $d = $it.DaysToDeadline
+        if ($null -ne $d -and $d -lt 0)         { & $badge $label '#A02530' '#FCE4E6' }
+        elseif ($d -eq 0 -or $it.Risk -ne 'ok') { & $badge $label '#8A6320' '#F5E6BD' }
+        else                                     { & $badge $label '#4F7A4E' '#DCE8DB' }
+    }
+    $section = {
+        param($title)
+        [void]$sb.Append("<tr><td style=`"padding:22px 24px 8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:$muted`">$(& $h $title)</td></tr>")
+    }
+    $row = {
+        param($html)
+        [void]$sb.Append("<tr><td style=`"padding:4px 24px;font-size:14px`">$html</td></tr>")
+    }
+
+    # Cartões de tarefa (título, horas no dia, prazo, descrição, subtarefas)
+    $cards = {
+        param($p, [string]$dayWord, [string]$emptyText)
+        if ($p.MyToday.Count -eq 0) {
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px 8px;color:$muted;font-size:14px`">$(& $h $emptyText)</td></tr>")
+        }
+        $n = 0
+        foreach ($it in $p.MyToday) {
+            $n++
+            $t = $it.Task
+            $meta = "<b>$(Format-PPEHours $it.HoursToday) $dayWord</b>"
+            if ([double]$t.estimatedHours -gt $it.HoursToday) { $meta += " <span style=`"color:$muted`">de $(Format-PPEHours ([double]$t.estimatedHours))</span>" }
+            $meta += ' &nbsp;' + (& $deadlineBadge $it)
+            if ($t.status -eq 'in_progress') { $meta += ' ' + (& $badge 'Em curso' '#3D4A99' '#E0E4FA') }
+            if ($it.End -and $it.End -ne $p.Today.ToString('yyyy-MM-dd')) {
+                $meta += " <span style=`"color:$muted;font-size:12px`">· termina $(& $h (Format-PPEDay (ConvertFrom-IsoDay $it.End) 'ddd d MMM'))</span>"
+            }
+            [void]$sb.Append("<tr><td style=`"padding:6px 24px`"><table role=`"presentation`" width=`"100%`" cellpadding=`"0`" cellspacing=`"0`" style=`"border:1px solid $border;border-left:4px solid $red;border-radius:6px`"><tr><td style=`"padding:12px 14px`">")
+            [void]$sb.Append("<div style=`"font-size:15px;font-weight:700`">$n. $(& $h $t.title)</div>")
+            [void]$sb.Append("<div style=`"font-size:13px;margin-top:6px`">$meta</div>")
+            if ($t.description) {
+                $desc = (& $h $t.description) -replace "`r?`n", '<br>'
+                [void]$sb.Append("<div style=`"font-size:13px;color:$muted;margin-top:8px`">$desc</div>")
+            }
+            if ($it.PendingSubtasks.Count -gt 0) {
+                [void]$sb.Append("<div style=`"font-size:13px;margin-top:8px`">")
+                foreach ($st in $it.PendingSubtasks) {
+                    $who = if ($st.assignee) { " <span style=`"color:$muted`">($(& $h $st.assignee))</span>" } else { '' }
+                    [void]$sb.Append("☐ $(& $h $st.title) <span style=`"color:$muted`">· $(Format-PPEHours ([double]$st.estimatedHours))</span>$who<br>")
+                }
+                [void]$sb.Append('</div>')
+            }
+            [void]$sb.Append('</td></tr></table></td></tr>')
+        }
+    }
+
+    # Prazos atrasados/próximos que não estão nos cartões
+    $deadlines = {
+        param($p)
+        $ids = @($p.MyToday | ForEach-Object { $_.Task.id })
+        $list = @($p.Ordered | Where-Object {
+            $_.IsMine -and $ids -notcontains $_.Task.id -and $null -ne $_.DaysToDeadline -and $_.DaysToDeadline -le [int]$Config.email.upcomingDays
+        } | Sort-Object DaysToDeadline)
+        if ($list.Count -eq 0) { return }
+        $hasOverdue = @($list | Where-Object { $_.DaysToDeadline -lt 0 }).Count -gt 0
+        & $section $(if ($hasOverdue) { "Em atraso e prazos nos próximos $($Config.email.upcomingDays) dias" } else { "Prazos nos próximos $($Config.email.upcomingDays) dias" })
+        foreach ($it in $list) {
+            $start = if ($it.Start) { "começa $(Format-PPEDay (ConvertFrom-IsoDay $it.Start) 'ddd d MMM')" } else { '' }
+            & $row "$(& $deadlineBadge $it) &nbsp;$(& $h $it.Task.title) <span style=`"color:$muted;font-size:12px`">· $(Format-PPEHours ([double]$it.Task.estimatedHours)) $(& $h $start)</span>"
+        }
+    }
+
+    $delegated = {
+        param($p, [string]$title)
+        if (-not $Config.email.includeDelegated -or $p.Delegated.Count -eq 0) { return }
+        & $section $title
+        foreach ($g in ($p.Delegated | Group-Object Assignee | Sort-Object Name)) {
+            $list = ($g.Group | ForEach-Object { "$(& $h $_.Task.title) <span style=`"color:$muted`">($(Format-PPEHours $_.HoursToday))</span>" }) -join '<br>'
+            & $row "<b>$(& $h $g.Name)</b><br>$list"
+        }
+    }
+
+    $hoursOf = { param($p) [double](($p.MyToday | Measure-Object -Property HoursToday -Sum).Sum) }
+    $tasksLabel = { param($c, $hrs) if ($c -eq 0) { 'sem tarefas' } elseif ($c -eq 1) { "1 tarefa · $(Format-PPEHours $hrs)" } else { "$c tarefas · $(Format-PPEHours $hrs)" } }
+    $todayLabel = & $cap $Plan.Today.ToString("dddd, d 'de' MMMM", $script:PT)
+
+    if ($Slot -eq 'Evening') {
+        $done = @($Plan.CompletedToday)
+        $nextLabel = $NextPlan.Today.ToString("dddd, d MMM", $script:PT)
+        $kicker = 'PPEPlan · fim do dia'
+        $headline = $todayLabel
+        $summary = "$($done.Count) concluída(s) hoje · ${nextLabel}: $(& $tasksLabel $NextPlan.MyToday.Count (& $hoursOf $NextPlan))"
+        $subject = "PPEPlan · Fim do dia $(Format-PPEDay $Plan.Today 'ddd, d MMM') · $($done.Count) concluída(s) · amanhã $(& $tasksLabel $NextPlan.MyToday.Count (& $hoursOf $NextPlan))"
+    } else {
+        $kicker = 'PPEPlan'
+        $headline = $todayLabel
+        $summary = & $cap (& $tasksLabel $Plan.MyToday.Count (& $hoursOf $Plan))
+        $subject = "PPEPlan · $(Format-PPEDay $Plan.Today 'ddd, d MMM') · $summary"
+    }
+
+    [void]$sb.Append(@"
+<!doctype html><html><body style="margin:0;padding:0;background:#EEF0F3;font-family:Segoe UI,Arial,sans-serif;color:$text">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF0F3;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#FFFFFF;border-radius:10px;overflow:hidden">
+<tr><td style="background:$red;padding:20px 24px;color:#FFFFFF">
+  <div style="font-size:13px;opacity:.85">$(& $h $kicker)</div>
+  <div style="font-size:22px;font-weight:700;margin-top:2px">$(& $h $headline)</div>
+  <div style="font-size:14px;margin-top:4px">$(& $h $summary)</div>
+</td></tr>
+"@)
+
+    if ($Plan.SavedAt -and ((Get-Date) - $Plan.SavedAt).TotalDays -gt [double]$Config.staleDataWarningDays) {
+        [void]$sb.Append("<tr><td style=`"padding:12px 24px;background:#F5E6BD;color:#6B4A10;font-size:13px`">⚠ Os dados foram guardados pela última vez a <b>$(& $h (Format-PPEDay $Plan.SavedAt 'd MMM yyyy, HH:mm'))</b>. Abre o PPEPlan para sincronizar — este plano pode estar desatualizado.</td></tr>")
+    }
+
+    if ($Slot -eq 'Evening') {
+        & $section 'Concluídas hoje'
+        if ($done.Count -eq 0) {
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px 8px;color:$muted;font-size:14px`">Nenhuma tarefa marcada como concluída hoje.</td></tr>")
+        }
+        foreach ($t in $done) { & $row "<span style=`"color:$green;font-weight:700`">✓</span> $(& $h $t.title)" }
+
+        if ($Plan.MyToday.Count -gt 0) {
+            & $section 'Ainda em aberto do plano de hoje'
+            foreach ($it in $Plan.MyToday) {
+                & $row "$(& $deadlineBadge $it) &nbsp;$(& $h $it.Task.title) <span style=`"color:$muted;font-size:12px`">· $(Format-PPEHours $it.HoursToday) previstas hoje</span>"
+            }
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px;font-size:12px;color:$muted`">Se já estão feitas, marca-as no PPEPlan para o plano de amanhã ficar certo.</td></tr>")
+        }
+
+        & $section ('Amanhã · ' + $nextLabel)
+        & $cards $NextPlan 'previstas' 'Nada agendado para o próximo dia útil.'
+        & $deadlines $NextPlan
+        & $delegated $NextPlan 'Delegadas com trabalho amanhã'
+    } else {
+        & $section 'Para hoje'
+        & $cards $Plan 'hoje' 'Nada agendado para hoje.'
+        & $deadlines $Plan
+        & $delegated $Plan 'Delegadas com trabalho hoje'
+    }
+
+    $saved = if ($Plan.SavedAt) { ' · dados guardados a ' + (Format-PPEDay $Plan.SavedAt 'd MMM, HH:mm') } else { '' }
+    $link = if ($Config.appUrl -and $Config.appUrl -match '^https?:') { " · <a href=`"$(& $h $Config.appUrl)`" style=`"color:$red`">Abrir PPEPlan</a>" } else { '' }
+    [void]$sb.Append("<tr><td style=`"padding:22px 24px;font-size:12px;color:#8B95A0;border-top:1px solid $border`">Gerado automaticamente pelo PPEPlan$(& $h $saved)$link</td></tr>")
+    [void]$sb.Append('</table></td></tr></table></body></html>')
+
+    [pscustomobject]@{ Subject = $subject; Html = $sb.ToString() }
+}
+
+function Send-PPEEmail($Mail, $Alerts) {
+    # Sem destinatário nas Definições da app: a própria conta Google
+    $to = if ($Alerts.EmailTo) { $Alerts.EmailTo } else { (Get-PPEGoogleAccount).Email }
+    Send-PPEGmail -To $to -Subject $Mail.Subject -Html $Mail.Html
+}
+
+# Registo partilhado entre PCs: { "emailSent": "2026-09-15", "emailSentEvening": "..." }
+function Get-PPESharedEmailState {
+    $file = Find-PPEDriveFile $script:PPE_EmailStateName
+    if (-not $file) { return [pscustomobject]@{} }
+    $text = Read-PPEDriveText $file.id
+    if ([string]::IsNullOrWhiteSpace($text)) { return [pscustomobject]@{} }
+    return $text | ConvertFrom-Json
+}
+
+function Set-PPESharedEmailState([string]$Key, [string]$Value) {
+    $state = Get-PPESharedEmailState
+    $state | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
+    $state | Add-Member -NotePropertyName ($Key + 'By') -NotePropertyValue $env:COMPUTERNAME -Force
+    Write-PPEDriveText $script:PPE_EmailStateName ($state | ConvertTo-Json)
+}
+
+try {
+    $config = Get-PPEConfig
+    $now = Get-Date
+    $todayKey = $now.ToString('yyyy-MM-dd')
+    $stateKey = if ($Slot -eq 'Evening') { 'emailSentEvening' } else { 'emailSent' }
+
+    $data = Read-PPEData $config
+    $alerts = Get-PPEAlerts $data $config
+    $plan = Get-PPEPlan -Data $data -Config $config
+
+    if (-not $Preview -and -not $Force) {
+        if (-not (Test-PPESlotDue $alerts (Get-PPEAlertSlot $alerts 'Email' $Slot) $data $config $now)) { return }
+        $shared = Get-PPESharedEmailState
+        if ($shared.$stateKey -eq $todayKey) {
+            Set-PPEStateValue $stateKey $todayKey
+            Write-PPELog "Email $Slot já enviado hoje por $($shared.($stateKey + 'By'))"
+            return
+        }
+    }
+
+    $nextPlan = $null
+    if ($Slot -eq 'Evening') {
+        $next = Get-PPENextWorkingDay $plan.Today $plan.Settings
+        $nextPlan = Get-PPEPlan -Data $data -Config $config -Today $next -LabelDate $plan.Today
+    }
+    $mail = New-PPEEmailHtml -Plan $plan -Config $config -Slot $Slot -NextPlan $nextPlan
+
+    if ($Preview) {
+        $out = Join-Path $script:PPE_StateDir 'email-preview.html'
+        [IO.File]::WriteAllText($out, $mail.Html, (New-Object Text.UTF8Encoding($true)))
+        Write-Output "Assunto: $($mail.Subject)"
+        Write-Output "Pré-visualização: $out"
+        Start-Process $out
+        return
+    }
+
+    Send-PPEEmail $mail $alerts
+    # Um envio manual (-Force) também conta como o email do dia: evita que o disparo
+    # automático/nova tentativa volte a enviar. Para testar sem afetar, usar -Preview.
+    Set-PPEStateValue $stateKey $todayKey
+    try { Set-PPESharedEmailState $stateKey $todayKey }
+    catch { Write-PPELog "Aviso: não foi possível registar o envio no Drive: $($_.Exception.Message)" }
+    Write-PPELog "Email $Slot enviado: $($mail.Subject)"
+}
+catch {
+    $err = $_.Exception.Message
+    if ($_.Exception.InnerException) { $err += ' | ' + $_.Exception.InnerException.Message }
+    Write-PPELog "ERRO Email ${Slot}: $err"
+    if (-not $Preview) {
+        # Envio automático: nova tentativa daqui a email.retryMinutes; avisa só uma vez por dia
+        $day = (Get-Date).ToString('yyyy-MM-dd')
+        $warn = $true
+        if (-not $Force) {
+            Set-PPEStateValue "emailFail$Slot" (Get-Date).ToString('o')
+            $warn = (Get-PPEState).("emailFailToast$Slot") -ne $day
+            Set-PPEStateValue "emailFailToast$Slot" $day
+        }
+        if ($warn) {
+            try { Show-PPEToast -Title "PPEPlan — falha no email ($Slot)" -Body "$err`nNova tentativa automática dentro de minutos." -Tag 'email-error' -Config $config } catch { }
+        }
+    }
+    throw
+}

@@ -1,0 +1,15 @@
+{
+    "appUrl": "https://filribeiro.github.io/ppeplan-app/",
+    "myInitials": [],
+    "staleDataWarningDays": 3,
+    "notifications": {
+        "enabled": true,
+        "lateToleranceMinutes": 120,
+        "maxTasksListed": 4
+    },
+    "email": {
+        "retryMinutes": 30,
+        "upcomingDays": 7,
+        "includeDelegated": true
+    }
+}
