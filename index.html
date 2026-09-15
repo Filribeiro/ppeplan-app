@@ -221,6 +221,10 @@
   .settings-row:last-child { border: none; }
   .settings-label { font-weight: 500; }
   .settings-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .settings-section { margin: 18px 0 2px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+  .alert-ctl { display: flex; align-items: center; gap: 10px; }
+  .alert-ctl input[type="time"] { width: 130px; }
+  .alert-ctl input[type="time"]:disabled { opacity: .45; }
 
   .sync-banner { display: none; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--ppe-red-soft); color: var(--ppe-red-dark); border-bottom: 1px solid var(--ppe-red); font-size: 13px; font-weight: 500; }
   .sync-banner.show { display: flex; }
@@ -518,6 +522,11 @@
     <div class="settings-row"><div><div class="settings-label">Peso: Deadline</div></div><input id="s-w-deadline" class="input" type="number" min="0" max="1" step="0.05" style="width:80px" /></div>
     <div class="settings-row"><div><div class="settings-label">Peso: Folga</div></div><input id="s-w-slack" class="input" type="number" min="0" max="1" step="0.05" style="width:80px" /></div>
     <div class="settings-row"><div><div class="settings-label">Peso: Prioridade manual</div></div><input id="s-w-priority" class="input" type="number" min="0" max="1" step="0.05" style="width:80px" /></div>
+    <div class="settings-section">Emails e notificações</div>
+    <div class="settings-desc">Enviados pelo PPEPlan instalado no Windows, nos dias úteis. Valem para todos os PCs desta conta; para desligar as notificações só num PC: menu Iniciar → PPEPlan.</div>
+    <div id="s-alerts"></div>
+    <div class="settings-row"><div><div class="settings-label">Enviar emails para</div><div class="settings-desc">Vazio = a própria conta Google. Vários: separar por vírgula</div></div><input id="s-email-to" class="input" type="text" placeholder="conta Google" autocomplete="off" style="width:200px" /></div>
+    <div class="settings-section">Dados</div>
     <div class="settings-row"><div><div class="settings-label">Limpar ordem manual</div></div><button class="btn-secondary" id="s-clear-manual">Limpar</button></div>
     <div class="settings-row"><div><div class="settings-label">Exportar dados</div></div><button class="btn-secondary" id="s-export">Exportar</button></div>
     <div class="settings-row"><div><div class="settings-label">Importar dados</div></div><button class="btn-secondary" id="s-import">Importar</button></div>
@@ -564,8 +573,23 @@ const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleuser
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 const FILE_NAME = "ppeplan-data.json";
 
-const defaultSettings = { dailyHours: 8, workWeekends: false, weights: { deadline: 0.40, slack: 0.35, priority: 0.25 } };
-let state = { tasks: [], settings: { ...defaultSettings }, view: "list", calendarWeekStart: null, editingId: null, newTaskPriority: 3, editTaskPriority: 3 };
+// alerts: lido pelo PPEPlan instalado no Windows (instalador/scripts) — emails e notificações
+const ALERT_DEFS = [
+  ["emailMorning",   "Email da manhã",            "Tarefas de hoje",                "08:00"],
+  ["emailEvening",   "Email de fim do dia",       "Resumo e plano do dia seguinte", "18:00"],
+  ["notifyMorning",  "Notificação da manhã",      "Tarefas de hoje e prazos",       "09:00"],
+  ["notifyMidday",   "Notificação do meio-dia",   "Ponto de situação",              "14:00"],
+  ["notifyEndOfDay", "Notificação de fim do dia", "Lembrete para marcar concluídas", "17:30"]
+];
+const defaultSettings = { dailyHours: 8, workWeekends: false, weights: { deadline: 0.40, slack: 0.35, priority: 0.25 },
+  alerts: { emailTo: "", ...Object.fromEntries(ALERT_DEFS.map(([k,,,t]) => [k, { on: true, time: t }])) } };
+function mergeSettings(s) {
+  s = s || {}; const a = s.alerts || {};
+  const alerts = { emailTo: typeof a.emailTo === "string" ? a.emailTo : "" };
+  for (const [k] of ALERT_DEFS) alerts[k] = { ...defaultSettings.alerts[k], ...(a[k] || {}) };
+  return { ...defaultSettings, ...s, weights: { ...defaultSettings.weights, ...(s.weights || {}) }, alerts };
+}
+let state = { tasks: [], settings: mergeSettings({}), view: "list", calendarWeekStart: null, editingId: null, newTaskPriority: 3, editTaskPriority: 3 };
 let accessToken = null, driveFileId = null, tokenClient = null, saveTimer = null, lastFileSavedAt = null, lastDriveModified = null, localEditSeq = 0, syncStatus = "local";
 
 const $ = s => document.querySelector(s);
@@ -632,7 +656,7 @@ function computeSchedule(tasks, settings) {
 }
 
 function saveLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify({tasks:state.tasks, settings:state.settings, savedAt:new Date().toISOString()})); }
-function loadLocal() { const r=localStorage.getItem(STORAGE_KEY); if(!r) return false; try { const d=JSON.parse(r); if(d.tasks) state.tasks=d.tasks; if(d.settings) state.settings={...defaultSettings,...d.settings,weights:{...defaultSettings.weights,...(d.settings.weights||{})}}; return true; } catch(e) { return false; } }
+function loadLocal() { const r=localStorage.getItem(STORAGE_KEY); if(!r) return false; try { const d=JSON.parse(r); if(d.tasks) state.tasks=d.tasks; if(d.settings) state.settings=mergeSettings(d.settings); return true; } catch(e) { return false; } }
 
 function initGIS() {
   if (typeof google === "undefined" || !google.accounts) { setTimeout(initGIS, 200); return; }
@@ -698,7 +722,7 @@ async function loadFromDrive() {
   const r = await driveCall(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
   if (!r.ok) return false;
   const t = await r.text(); if (!t.trim()) return false;
-  try { const d = JSON.parse(t); if (d.tasks) state.tasks = d.tasks; if (d.settings) state.settings = {...defaultSettings,...d.settings,weights:{...defaultSettings.weights,...(d.settings.weights||{})}}; if (d.savedAt) lastFileSavedAt = d.savedAt; saveLocal(); return true; } catch(e) { return false; }
+  try { const d = JSON.parse(t); if (d.tasks) state.tasks = d.tasks; if (d.settings) state.settings = mergeSettings(d.settings); if (d.savedAt) lastFileSavedAt = d.savedAt; saveLocal(); return true; } catch(e) { return false; }
 }
 async function saveToDrive() {
   if (!driveFileId || !accessToken) return;
@@ -1339,10 +1363,21 @@ function renderSubGantt() {
 function renderSubtaskList() {}
 function renderMiniGantt() {}
 
-function openSettings() { $("#s-daily-hours").value=state.settings.dailyHours; $("#s-weekends").checked=state.settings.workWeekends; $("#s-w-deadline").value=state.settings.weights.deadline; $("#s-w-slack").value=state.settings.weights.slack; $("#s-w-priority").value=state.settings.weights.priority; $("#settings-modal").classList.add("active"); }
-function closeSettings() { state.settings.dailyHours=parseFloat($("#s-daily-hours").value)||8; state.settings.workWeekends=$("#s-weekends").checked; const wd=parseFloat($("#s-w-deadline").value)||0,ws=parseFloat($("#s-w-slack").value)||0,wp=parseFloat($("#s-w-priority").value)||0; const tot=wd+ws+wp||1; state.settings.weights={deadline:wd/tot, slack:ws/tot, priority:wp/tot}; scheduleSave(); render(); $("#settings-modal").classList.remove("active"); }
+function openSettings() { $("#s-daily-hours").value=state.settings.dailyHours; $("#s-weekends").checked=state.settings.workWeekends; $("#s-w-deadline").value=state.settings.weights.deadline; $("#s-w-slack").value=state.settings.weights.slack; $("#s-w-priority").value=state.settings.weights.priority; renderAlertSettings(); $("#settings-modal").classList.add("active"); }
+function renderAlertSettings() {
+  const a = state.settings.alerts;
+  $("#s-alerts").innerHTML = ALERT_DEFS.map(([k, label, desc]) => `<div class="settings-row"><div><div class="settings-label">${label}</div><div class="settings-desc">${desc}</div></div><div class="alert-ctl"><input type="time" class="input" id="s-a-${k}-time" value="${escapeHtml(a[k].time)}" ${a[k].on?"":"disabled"} /><input type="checkbox" id="s-a-${k}-on" title="Ligar/desligar" ${a[k].on?"checked":""} /></div></div>`).join("");
+  for (const [k] of ALERT_DEFS) $(`#s-a-${k}-on`).addEventListener("change", e => { $(`#s-a-${k}-time`).disabled = !e.target.checked; });
+  $("#s-email-to").value = a.emailTo || "";
+}
+function readAlertSettings() {
+  const prev = state.settings.alerts, alerts = { emailTo: $("#s-email-to").value.trim() };
+  for (const [k] of ALERT_DEFS) { const t = $(`#s-a-${k}-time`).value; alerts[k] = { on: $(`#s-a-${k}-on`).checked, time: /^\d{2}:\d{2}$/.test(t) ? t : prev[k].time }; }
+  return alerts;
+}
+function closeSettings() { state.settings.dailyHours=parseFloat($("#s-daily-hours").value)||8; state.settings.workWeekends=$("#s-weekends").checked; const wd=parseFloat($("#s-w-deadline").value)||0,ws=parseFloat($("#s-w-slack").value)||0,wp=parseFloat($("#s-w-priority").value)||0; const tot=wd+ws+wp||1; state.settings.weights={deadline:wd/tot, slack:ws/tot, priority:wp/tot}; state.settings.alerts=readAlertSettings(); scheduleSave(); render(); $("#settings-modal").classList.remove("active"); }
 function exportData() { const p={tasks:state.tasks,settings:state.settings,exportedAt:new Date().toISOString()}; const b=new Blob([JSON.stringify(p,null,2)],{type:"application/json"}); const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=`ppeplan-backup-${isoDate(today0())}.json`; a.click(); URL.revokeObjectURL(u); }
-function importData(f) { const r=new FileReader(); r.onload=()=>{ try { const d=JSON.parse(r.result); if(!d.tasks) throw new Error("JSON inválido"); if(state.tasks.length>0 && !confirm(`Importar ${d.tasks.length} tarefas? Substitui atuais.`)) return; state.tasks=d.tasks; if(d.settings) state.settings={...defaultSettings,...d.settings,weights:{...defaultSettings.weights,...(d.settings.weights||{})}}; scheduleSave(); render(); toast(`Importadas ${d.tasks.length} tarefas`); } catch(e) { toast("Erro: "+e.message, "error"); } }; r.readAsText(f); }
+function importData(f) { const r=new FileReader(); r.onload=()=>{ try { const d=JSON.parse(r.result); if(!d.tasks) throw new Error("JSON inválido"); if(state.tasks.length>0 && !confirm(`Importar ${d.tasks.length} tarefas? Substitui atuais.`)) return; state.tasks=d.tasks; if(d.settings) state.settings=mergeSettings(d.settings); scheduleSave(); render(); toast(`Importadas ${d.tasks.length} tarefas`); } catch(e) { toast("Erro: "+e.message, "error"); } }; r.readAsText(f); }
 
 function init() {
   loadLocal();
