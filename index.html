@@ -220,6 +220,8 @@
 
   /* Cabeçalho dos dias + linha de "dia todo" */
   .cal-head, .cal-allday, .cal-rows { display: grid; grid-template-columns: var(--cal-gutter) repeat(7, minmax(0, 1fr)); }
+  /* Cabeçalho dentro do mesmo contentor que rola: as colunas nunca desalinham por causa da barra de scroll */
+  .cal-sticky { position: sticky; top: 0; z-index: 8; background: var(--surface); }
   .cal-head { border-bottom: 1px solid var(--border); }
   .cal-dayhead { padding: 8px 4px 9px; text-align: center; border-left: 1px solid var(--border); min-width: 0; }
   .cal-dayhead .dow { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
@@ -232,7 +234,7 @@
   .cal-allday-cell { border-left: 1px solid var(--border); padding: 4px; display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 26px; }
 
   /* Grelha de horas */
-  .cal-body { overflow-y: auto; overscroll-behavior: contain; max-height: calc(100vh - 320px); min-height: 260px; }
+  .cal-body { position: relative; overflow-y: auto; overscroll-behavior: contain; max-height: calc(100vh - 320px); min-height: 260px; }
   .cal-rows { position: relative; }
   .cal-gutter .cal-hour { height: var(--cal-hour); position: relative; }
   .cal-gutter .cal-hour span { position: absolute; top: -7px; right: 8px; font-size: 10.5px; color: var(--text-soft); background: var(--surface); padding: 0 2px; }
@@ -249,13 +251,10 @@
   .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 5; pointer-events: none; }
   .cal-now::before { content: ""; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
 
-  /* Chips de tarefas PPEPlan (linha "dia todo") */
-  .day-task { font-size: 10.5px; padding: 2px 6px; border-radius: 5px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-  .day-task.ok { background: var(--success); }
-  .day-task.tight { background: var(--warning); }
-  .day-task.risk { background: var(--danger); }
-  .day-task.deadline { background: transparent; color: var(--danger); border: 1px dashed var(--danger); }
-  .day-more { font-size: 10px; color: var(--text-muted); padding: 1px 4px; }
+  /* Trabalho planeado do PPEPlan: mesmo formato dos eventos, com riscas e ⏱ para se distinguir */
+  .cal-event.task { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 5px, rgba(255,255,255,0) 5px 11px); border-left: 3px solid rgba(0,0,0,0.22); }
+  .cal-event.deadline { background: var(--surface) !important; background-image: none; color: var(--danger); border: 1px dashed var(--danger); box-shadow: none; }
+  .cal-event .subtasks-marker { width: 13px; height: 13px; font-size: 9px; margin-left: 3px; background: rgba(255,255,255,0.3); color: inherit; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
   .modal-overlay.active { display: flex; }
@@ -685,8 +684,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.11";
-const APP_PUBLISHED = "16/09/2026 10:09";
+const APP_VERSION = "2.12";
+const APP_PUBLISHED = "16/09/2026 10:34";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -926,17 +925,24 @@ function calSilentAuth() {
     catch(e) { clearTimeout(timer); calTokenClient.callback = original; resolve(false); }
   });
 }
+// Pedido com prazo: uma resposta que nunca chega não pode deixar a vista presa em "a carregar"
+function calFetch(path) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  return fetch("https://www.googleapis.com/calendar/v3" + path, { headers: { Authorization: "Bearer " + calToken }, signal: ctrl.signal })
+    .catch(e => { throw new Error(e.name === "AbortError" ? "sem-resposta" : "sem-rede"); })
+    .finally(() => clearTimeout(t));
+}
 async function calCall(path) {
   if (!calTokenValid() && !(await calSilentAuth())) throw new Error("sem-autorizacao");
-  let res = await fetch("https://www.googleapis.com/calendar/v3" + path, { headers: { Authorization: "Bearer " + calToken } });
-  if (res.status === 401 && await calSilentAuth()) {
-    res = await fetch("https://www.googleapis.com/calendar/v3" + path, { headers: { Authorization: "Bearer " + calToken } });
-  }
+  let res = await calFetch(path);
+  if (res.status === 401 && await calSilentAuth()) res = await calFetch(path);
   if (!res.ok) {
     const body = await res.text().catch(()=> "");
-    if (res.status === 403 && /accessNotConfigured|has not been used/i.test(body)) throw new Error("api-desativada");
+    console.error("[PPEPlan] Calendar API", res.status, path, body.slice(0, 400));
+    if (res.status === 403 && /accessNotConfigured|has not been used|disabled/i.test(body)) throw new Error("api-desativada");
     if (res.status === 401 || res.status === 403) throw new Error("sem-autorizacao");
-    throw new Error("erro-" + res.status);
+    throw new Error("erro " + res.status);
   }
   return res.json();
 }
@@ -1228,8 +1234,10 @@ function normalizeEvent(e, cal, colors) {
 }
 async function loadCalendarData(force) {
   const c = state.cal, key = state.calendarWeekStart;
-  if (c.loading || !calLinked() || (!force && c.weekKey === key)) return;
-  c.loading = true; c.error = "";
+  // Um carregamento preso há mais de 30s não pode bloquear todas as tentativas seguintes
+  if (c.loading && Date.now() - (c.loadingAt || 0) < 30000) return;
+  if (!calLinked() || !key || (!force && c.weekKey === key)) return;
+  c.loading = true; c.loadingAt = Date.now(); c.error = "";
   if (state.view === "calendar") render();
   try {
     if (!c.list) {
@@ -1253,18 +1261,60 @@ async function loadCalendarData(force) {
     c.events = [].concat.apply([], lists);
     c.weekKey = key; c.loadedAt = Date.now();
   } catch (e) {
+    console.error("[PPEPlan] Calendário:", e);
     c.events = [];
+    // Marca a semana como tentada: sem isto, cada render voltava a pedir e ficava
+    // num ciclo infinito de tentativas, com a vista presa em "a carregar…".
+    // Repetir é só a pedido (botão Tentar outra vez / ↻) ou ao mudar de semana.
+    c.weekKey = key; c.loadedAt = Date.now();
     if (e.message === "api-desativada") c.error = "A Google Calendar API ainda não está ativada no projeto Google desta app.";
     else if (e.message === "sem-autorizacao") { c.error = "A autorização do Calendário expirou — liga outra vez."; localStorage.removeItem(CAL_ON_KEY); calToken = null; }
-    else c.error = "Não foi possível ler o Calendário Google.";
+    else if (e.message === "sem-resposta") c.error = "A Google não respondeu a tempo. Tenta outra vez.";
+    else if (e.message === "sem-rede") c.error = "Sem ligação à Google. Verifica a internet e tenta outra vez.";
+    else c.error = "Não foi possível ler o Calendário Google (" + (e.message || "erro") + ").";
+  } finally {
+    // Aconteça o que acontecer, a vista nunca fica presa em "a carregar…"
+    c.loading = false;
   }
-  c.loading = false;
   if (state.view === "calendar") render();
 }
 // Ao voltar à app com o Calendário aberto, recarrega se os eventos já têm mais de 5 minutos
 function calRefreshIfStale() {
   if (state.view !== "calendar" || !calLinked()) return;
   if (!state.cal.loadedAt || Date.now() - state.cal.loadedAt > 5 * 60 * 1000) loadCalendarData(true);
+}
+// Coloca o trabalho planeado do dia nas horas livres, contornando as reuniões.
+// É só uma leitura visual do dia: as horas por dia continuam a vir do planeamento.
+const CAL_WORK_START = 9 * 60;
+function placeTaskBlocks(workItems, timedEvents, dayStart, dayEnd) {
+  if (!workItems.length) return [];
+  // Intervalos ocupados (em minutos desde a meia-noite), já unidos
+  const busy = timedEvents.map(e => ({
+    s: Math.max(0, Math.round((Math.max(e.start, dayStart) - dayStart) / 60000)),
+    e: Math.min(1440, Math.round((Math.min(e.end, dayEnd) - dayStart) / 60000))
+  })).filter(iv => iv.e > iv.s).sort((a, b) => a.s - b.s);
+  const merged = [];
+  busy.forEach(iv => {
+    const last = merged[merged.length - 1];
+    if (last && iv.s <= last.e) last.e = Math.max(last.e, iv.e); else merged.push({ ...iv });
+  });
+
+  const out = [];
+  let cursor = CAL_WORK_START, guard = 0;
+  for (const it of workItems) {
+    let left = Math.max(15, Math.round((parseFloat(it.hours) || 0) * 60));
+    while (left > 0 && cursor < 1440 && guard++ < 300) {
+      const inside = merged.find(iv => cursor >= iv.s && cursor < iv.e);
+      if (inside) { cursor = inside.e; continue; }
+      const next = merged.find(iv => iv.s > cursor);
+      const limit = next ? next.s : 1440;
+      const take = Math.min(left, limit - cursor);
+      if (take <= 0) { cursor = limit; continue; }
+      out.push({ task: it.task, hours: it.hours, s: cursor, e: cursor + take, lane: 0, lanes: 1 });
+      cursor += take; left -= take;
+    }
+  }
+  return out;
 }
 // Eventos sobrepostos ficam lado a lado: cada um recebe a sua faixa (lane) e o total (lanes)
 function layoutEvents(evs) {
@@ -1297,7 +1347,9 @@ function calSourcesHtml() {
   return `<div class="cal-sources">${taskChip}${chips}${estado}
     <button class="btn-ghost" id="cal-refresh" title="Atualizar eventos" style="margin-left:auto;font-size:13px;padding:4px 8px;color:var(--text-soft)">↻</button>
     <button class="btn-ghost" id="cal-disconnect" title="Desligar o Calendário Google" style="font-size:11.5px;padding:4px 8px;color:var(--text-soft)">Desligar</button></div>`
-    + (c.error ? `<div class="cal-note" style="color:var(--danger)"><span>⚠ ${escapeHtml(c.error)}</span>${calLinked() ? "" : `<button class="btn-secondary" id="cal-connect" style="padding:5px 11px;font-size:12px">Ligar outra vez</button>`}</div>` : "");
+    + (c.error ? `<div class="cal-note" style="color:var(--danger)"><span>⚠ ${escapeHtml(c.error)}</span>${calLinked()
+        ? `<button class="btn-secondary" id="cal-retry" style="padding:5px 11px;font-size:12px">Tentar outra vez</button>`
+        : `<button class="btn-secondary" id="cal-connect" style="padding:5px 11px;font-size:12px">Ligar outra vez</button>`}</div>` : "");
 }
 function renderCalendar() {
   const today = today0();
@@ -1329,25 +1381,24 @@ function renderCalendar() {
     const cls = `${isT ? 'today' : ''} ${we ? 'weekend' : ''} ${sel ? 'sel' : ''}`;
     headCells += `<div class="cal-dayhead ${cls}"><div class="dow">${DOW[i]}</div><div class="dnum">${d.getDate()}</div></div>`;
 
-    // Linha "dia todo": eventos de dia inteiro + tarefas
+    // Linha "dia todo": só o que é mesmo do dia inteiro — eventos do Google e prazos
     const dayStart = new Date(iso + "T00:00:00"), dayEnd = addDays(dayStart, 1);
     const allDay = evs.filter(e => e.allDay && e.start < dayEnd && e.end > dayStart);
     const chips = allDay.map(e => {
       const ink = calInk(e.color);
       return `<div class="cal-event" style="position:static;background:${escapeHtml(e.color)};color:${ink.fg};border-color:${ink.bd}" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}"><span class="t">${escapeHtml(e.title)}</span></div>`;
     }).join("");
-    const items = bd[iso] || [], vis = items.slice(0, 3), more = items.length - vis.length;
-    const tasks = vis.map(x => {
+    const items = bd[iso] || [];
+    const deadlines = items.filter(x => x.type === "deadline").map(x => {
       const ac = assigneeColor(x.task.assignee);
       const sm = (x.task.subtasks || []).length;
       const subM = sm > 0 ? `<span class="subtasks-marker" data-act="subtasks" data-id="${x.task.id}" title="${sm} subtarefas">⊟</span>` : '';
       const who = x.task.assignee ? `[${escapeHtml(x.task.assignee)}] ` : '';
-      if (x.type === "deadline") return `<div class="day-task deadline" data-id="${x.task.id}" style="${ac ? `border-color:${ac.solid};color:${ac.solid}` : ''}" title="Prazo: ${escapeHtml(x.task.title)}">⚑ ${who}${escapeHtml(x.task.title)}${subM}</div>`;
-      return `<div class="day-task ${x.task.riskLevel}" data-id="${x.task.id}" style="${ac ? `background:${ac.solid}` : ''}" title="${escapeHtml(x.task.title)} · ${x.hours}h">${who}${escapeHtml(x.task.title)} · ${x.hours}h${subM}</div>`;
-    }).join("") + (more > 0 ? `<div class="day-more">+${more} mais</div>` : "");
-    allDayCells += `<div class="cal-allday-cell ${sel ? 'sel' : ''}">${chips}${tasks}</div>`;
+      return `<div class="cal-event deadline" data-id="${x.task.id}" style="position:static${ac ? `;border-color:${ac.solid};color:${ac.solid}` : ''}" title="Prazo: ${escapeHtml(x.task.title)}"><span class="t">⚑ ${who}${escapeHtml(x.task.title)}${subM}</span></div>`;
+    }).join("");
+    allDayCells += `<div class="cal-allday-cell ${sel ? 'sel' : ''}">${chips}${deadlines}</div>`;
 
-    // Coluna de horas
+    // Coluna de horas: eventos do Google e trabalho planeado, lado a lado
     const timed = layoutEvents(evs.filter(e => !e.allDay && e.start < dayEnd && e.end > dayStart).map(e => ({ ...e })));
     const blocks = timed.map(e => {
       const s = Math.max(e.start, dayStart), en = Math.min(e.end, dayEnd);
@@ -1359,9 +1410,23 @@ function renderCalendar() {
         style="top:${top.toFixed(3)}%;height:${hgt.toFixed(3)}%;left:calc(${left}% + 2px);width:calc(${w}% - 4px);background:${escapeHtml(e.color)};color:${ink.fg};border-color:${ink.bd}">
         <span class="t">${escapeHtml(e.title)}</span><span class="h">${hrs}</span></div>`;
     }).join("");
+    // As tarefas ocupam os buracos deixados pelas reuniões: vê-se logo o que cabe no dia
+    const work = placeTaskBlocks(items.filter(x => x.type === "work"), timed, dayStart, dayEnd);
+    const workHtml = work.map(b => {
+      const t = b.task, ac = assigneeColor(t.assignee);
+      const bg = ac ? ac.solid : (t.riskLevel === "risk" ? "#C73943" : t.riskLevel === "tight" ? "#B8862E" : "#4F7A4E");
+      const ink = calInk(bg);
+      const top = b.s / 14.4, hgt = Math.max(1.6, (b.e - b.s) / 14.4); // minutos → % do dia (1440/100)
+      const sm = (t.subtasks || []).length;
+      const subM = sm > 0 ? `<span class="subtasks-marker" data-act="subtasks" data-id="${t.id}" title="${sm} subtarefas">⊟</span>` : '';
+      const who = t.assignee ? `[${escapeHtml(t.assignee)}] ` : '';
+      return `<div class="cal-event task" data-id="${t.id}" title="Trabalho planeado: ${escapeHtml(t.title)} · ${b.hours}h neste dia (prazo ${fmtDate(t.deadline)})"
+        style="top:${top.toFixed(3)}%;height:${hgt.toFixed(3)}%;left:calc(${b.lane * (100 / b.lanes)}% + 2px);width:calc(${100 / b.lanes}% - 4px);background:${bg};color:${ink.fg};border-color:${ink.bd}">
+        <span class="t">⏱ ${who}${escapeHtml(t.title)}${subM}</span><span class="h">${pad2(Math.floor(b.s / 60))}:${pad2(b.s % 60)} – ${pad2(Math.floor(b.e / 60) % 24)}:${pad2(b.e % 60)}</span></div>`;
+    }).join("");
     let now = "";
     if (isT) { const n = new Date(); now = `<div class="cal-now" style="top:${((n.getHours() * 60 + n.getMinutes()) / 14.4).toFixed(3)}%"></div>`; }
-    cols += `<div class="cal-col ${cls}" data-day="${iso}">${'<div class="cal-slot"></div>'.repeat(24)}${blocks}${now}</div>`;
+    cols += `<div class="cal-col ${cls}" data-day="${iso}">${'<div class="cal-slot"></div>'.repeat(24)}${blocks}${workHtml}${now}</div>`;
 
     const nEv = allDay.length + timed.length + items.length;
     strip += `<button class="${sel ? 'sel' : ''} ${nEv ? 'has-ev' : ''}" data-day="${iso}"><span class="sd">${DOW[i]}</span><span class="sn">${d.getDate()}</span></button>`;
@@ -1384,9 +1449,13 @@ function renderCalendar() {
     </div>
     ${calSourcesHtml()}
     <div class="cal-strip">${strip}</div>
-    <div class="cal-head"><div class="cal-tz">GMT${fmtOffset()}</div>${headCells}</div>
-    <div class="cal-allday"><div class="cal-allday-label">dia todo</div>${allDayCells}</div>
-    <div class="cal-body"><div class="cal-rows"><div class="cal-gutter">${hours}</div>${cols}</div></div>
+    <div class="cal-body">
+      <div class="cal-sticky">
+        <div class="cal-head"><div class="cal-tz">GMT${fmtOffset()}</div>${headCells}</div>
+        <div class="cal-allday"><div class="cal-allday-label">dia todo</div>${allDayCells}</div>
+      </div>
+      <div class="cal-rows"><div class="cal-gutter">${hours}</div>${cols}</div>
+    </div>
   </div>`;
 }
 // Cores claras (as pastel do Google) pedem texto escuro, como no Google Calendar
@@ -1435,6 +1504,7 @@ function bindCalendarEvents() {
   $("#cal-connect")?.addEventListener("click", connectCalendar);
   $("#cal-disconnect")?.addEventListener("click", () => { if (confirm("Desligar o Calendário Google desta app?")) disconnectCalendar(); });
   $("#cal-refresh")?.addEventListener("click", () => loadCalendarData(true));
+  $("#cal-retry")?.addEventListener("click", () => { state.cal.list = null; loadCalendarData(true); });
   // Ligar/desligar um subcalendário (ou as tarefas do PPEPlan)
   $$(".cal-chip").forEach(b => b.addEventListener("click", () => {
     const id = b.dataset.cal;
@@ -1458,9 +1528,11 @@ function bindCalendarEvents() {
     let h = 7;
     const timed = (state.cal.events || []).filter(e => !e.allDay);
     if (timed.length) h = Math.min(h, Math.max(0, Math.min.apply(null, timed.map(e => e.start.getHours())) - 1));
+    // A grelha começa logo a seguir ao cabeçalho fixo, por isso basta a altura das horas
     body.scrollTop = Math.max(0, h * hPx - 8); // -8: não corta a etiqueta da 1.ª hora
   }
-  loadCalendarData(false);
+  // Fora do render atual: carregar dados nunca pode redesenhar o ecrã a meio deste render
+  setTimeout(() => loadCalendarData(false), 0);
 }
 
 function openEditModal(id) {
