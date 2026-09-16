@@ -1,10 +1,10 @@
 {
-    "published":  "2026-09-16 09:48",
-    "commit":  "d6bbcab",
+    "published":  "2026-09-16 10:09",
+    "commit":  "beba935",
     "app":  {
-                "build":  "7743584C0C7D",
-                "version":  "2.10",
-                "published":  "16/09/2026 09:48"
+                "build":  "DFF97172ED3D",
+                "version":  "2.11",
+                "published":  "16/09/2026 10:09"
             },
     "files":  {
                   "PPEPlan-Common.ps1":  "00C65B491AC43CE89E7E97A6B29E5A90FED687D9B7D7729C4DA299B7FFB29EBD",

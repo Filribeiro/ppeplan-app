@@ -190,24 +190,72 @@
   .gantt-deadline { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); pointer-events: none; }
   .gantt-deadline::after { content: ""; position: absolute; top: -4px; left: -3px; width: 8px; height: 8px; background: var(--danger); border-radius: 50%; }
 
-  .calendar { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
-  .calendar-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  /* ===== Calendário semanal (eventos do Google Calendar + tarefas PPEPlan) ===== */
+  .calendar { --cal-gutter: 54px; --cal-hour: 46px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; }
+  .calendar-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
   .calendar-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
-  .calendar-nav { display: flex; gap: 6px; }
-  .calendar-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--surface-2); border-bottom: 1px solid var(--border); }
-  .calendar-weekday { padding: 8px; text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
-  .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: minmax(110px, 1fr); }
-  .calendar-day { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px; position: relative; overflow: hidden; min-height: 110px; }
-  .calendar-day.today { background: var(--accent-soft); }
-  .calendar-day.today .day-number { color: var(--accent); font-weight: 700; }
-  .calendar-day.weekend { background: var(--surface-2); }
-  .day-number { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
-  .day-task { font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-bottom: 2px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .calendar-header .cal-range { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .calendar-nav { display: flex; gap: 6px; align-items: center; }
+  .calendar-nav .cal-arrow { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; font-size: 15px; }
+
+  /* Chips dos subcalendários (ligar/desligar) */
+  .cal-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--surface-warm); }
+  .cal-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); font-size: 12px; font-weight: 500; color: var(--text); cursor: pointer; max-width: 240px; }
+  .cal-chip .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--border-strong); }
+  .cal-chip .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-chip:hover { border-color: var(--border-strong); }
+  .cal-chip.off { color: var(--text-soft); background: transparent; }
+  .cal-chip.off .dot { background: transparent !important; box-shadow: inset 0 0 0 2px var(--border-strong); }
+  .cal-note { font-size: 12px; color: var(--text-muted); padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  /* Tira de dias (só mobile) */
+  .cal-strip { display: none; grid-template-columns: repeat(7, 1fr); gap: 3px; padding: 8px 8px 10px; border-bottom: 1px solid var(--border); }
+  .cal-strip button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; border: none; background: transparent; border-radius: 10px; color: var(--text-muted); }
+  .cal-strip .sd { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-strip .sn { font-size: 15px; font-weight: 600; color: var(--text); }
+  .cal-strip button.has-ev::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .cal-strip button.sel { background: var(--accent); }
+  .cal-strip button.sel .sd, .cal-strip button.sel .sn { color: #fff; }
+  .cal-strip button.sel.has-ev::after { background: #fff; }
+
+  /* Cabeçalho dos dias + linha de "dia todo" */
+  .cal-head, .cal-allday, .cal-rows { display: grid; grid-template-columns: var(--cal-gutter) repeat(7, minmax(0, 1fr)); }
+  .cal-head { border-bottom: 1px solid var(--border); }
+  .cal-dayhead { padding: 8px 4px 9px; text-align: center; border-left: 1px solid var(--border); min-width: 0; }
+  .cal-dayhead .dow { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+  .cal-dayhead .dnum { margin-top: 3px; font-size: 18px; font-weight: 600; width: 32px; height: 32px; line-height: 32px; border-radius: 50%; display: inline-block; }
+  .cal-dayhead.today .dow { color: var(--accent); }
+  .cal-dayhead.today .dnum { background: var(--accent); color: #fff; }
+  .cal-tz { font-size: 9.5px; color: var(--text-soft); display: grid; place-items: end center; padding-bottom: 6px; }
+  .cal-allday { border-bottom: 1px solid var(--border); background: var(--surface); }
+  .cal-allday-label { font-size: 9.5px; color: var(--text-soft); padding: 5px 7px 0 0; text-align: right; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-allday-cell { border-left: 1px solid var(--border); padding: 4px; display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 26px; }
+
+  /* Grelha de horas */
+  .cal-body { overflow-y: auto; overscroll-behavior: contain; max-height: calc(100vh - 320px); min-height: 260px; }
+  .cal-rows { position: relative; }
+  .cal-gutter .cal-hour { height: var(--cal-hour); position: relative; }
+  .cal-gutter .cal-hour span { position: absolute; top: -7px; right: 8px; font-size: 10.5px; color: var(--text-soft); background: var(--surface); padding: 0 2px; }
+  .cal-col { border-left: 1px solid var(--border); position: relative; min-width: 0; }
+  .cal-col.weekend { background: var(--surface-2); }
+  .cal-col.today { background: rgba(199, 57, 67, 0.045); }
+  .cal-slot { height: var(--cal-hour); border-top: 1px solid var(--border); }
+  .cal-slot:first-child { border-top: none; }
+  .cal-event { position: absolute; border-radius: 7px; padding: 3px 6px; overflow: hidden; color: #fff; font-size: 11.5px; line-height: 1.25; cursor: pointer; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.35); }
+  .cal-event:hover { filter: brightness(1.06); box-shadow: var(--shadow); z-index: 4; }
+  .cal-event .t { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; }
+  .cal-event .h { display: block; font-size: 10.5px; opacity: 0.9; }
+  .cal-event.outline { background: var(--surface) !important; }
+  .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 5; pointer-events: none; }
+  .cal-now::before { content: ""; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+
+  /* Chips de tarefas PPEPlan (linha "dia todo") */
+  .day-task { font-size: 10.5px; padding: 2px 6px; border-radius: 5px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
   .day-task.ok { background: var(--success); }
   .day-task.tight { background: var(--warning); }
   .day-task.risk { background: var(--danger); }
   .day-task.deadline { background: transparent; color: var(--danger); border: 1px dashed var(--danger); }
-  .day-more { font-size: 10px; color: var(--text-muted); padding: 2px 4px; }
+  .day-more { font-size: 10px; color: var(--text-muted); padding: 1px 4px; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
   .modal-overlay.active { display: flex; }
@@ -495,14 +543,20 @@
     .gantt-cell-label { padding: 8px 10px; font-size: 10px; }
 
     /* Calendário: células mais compactas */
-    .calendar-grid { grid-auto-rows: minmax(64px, auto); }
-    .calendar-day { min-height: 64px; padding: 4px; }
-    .day-number { font-size: 10px; margin-bottom: 2px; }
-    .day-task { font-size: 9.5px; padding: 1px 4px; }
+    /* Calendário: a tira escolhe o dia e a grelha mostra só essa coluna */
+    .calendar { --cal-gutter: 46px; --cal-hour: 54px; }
     .calendar-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
-    .calendar-header h2 { font-size: 14px; }
+    .calendar-header h2 { font-size: 15px; }
     .calendar-nav .btn-secondary { padding: 5px 10px; font-size: 12px; }
-    .calendar-weekday { padding: 5px 2px; font-size: 10px; }
+    .cal-sources { padding: 8px 10px; gap: 5px; }
+    .cal-chip { font-size: 11.5px; padding: 5px 10px; max-width: 160px; }
+    .cal-note { padding: 8px 12px; }
+    .cal-strip { display: grid; }
+    .cal-body { max-height: calc(100vh - 300px); }
+    .cal-head, .cal-allday, .cal-rows { grid-template-columns: var(--cal-gutter) minmax(0, 1fr); }
+    .cal-dayhead:not(.sel), .cal-allday-cell:not(.sel), .cal-col:not(.sel) { display: none; }
+    .cal-dayhead .dnum { font-size: 17px; }
+    .day-task { font-size: 11px; }
 
     /* FAB visível só em mobile */
     .fab { display: flex; }
@@ -631,13 +685,17 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.10";
-const APP_PUBLISHED = "16/09/2026 09:48";
+const APP_VERSION = "2.11";
+const APP_PUBLISHED = "16/09/2026 10:09";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
 // openid/email: saber a conta usada, para a renovação silenciosa não ter de adivinhar
 const SCOPES = "openid email https://www.googleapis.com/auth/drive.file";
+// Calendário: âmbito pedido à parte, só quando se liga na tab Calendário
+const CAL_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const CAL_TOKEN_KEY = "ppeplan-cal-token";
+const CAL_ON_KEY = "ppeplan-cal-on";
 const TOKEN_KEY = "ppeplan-token";
 const EMAIL_KEY = "ppeplan-account-email";
 const FILE_NAME = "ppeplan-data.json";
@@ -650,7 +708,7 @@ const ALERT_DEFS = [
   ["notifyMidday",   "Notificação do meio-dia",   "Ponto de situação",              "14:00"],
   ["notifyEndOfDay", "Notificação de fim do dia", "Lembrete para marcar concluídas", "17:30"]
 ];
-const defaultSettings = { dailyHours: 8, workWeekends: false, weights: { deadline: 0.40, slack: 0.35, priority: 0.25 },
+const defaultSettings = { dailyHours: 8, workWeekends: false, calendars: {}, calShowTasks: true, weights: { deadline: 0.40, slack: 0.35, priority: 0.25 },
   alerts: { emailTo: "", ...Object.fromEntries(ALERT_DEFS.map(([k,,,t]) => [k, { on: true, time: t }])) } };
 function mergeSettings(s) {
   s = s || {}; const a = s.alerts || {};
@@ -658,8 +716,10 @@ function mergeSettings(s) {
   for (const [k] of ALERT_DEFS) alerts[k] = { ...defaultSettings.alerts[k], ...(a[k] || {}) };
   return { ...defaultSettings, ...s, weights: { ...defaultSettings.weights, ...(s.weights || {}) }, alerts };
 }
-let state = { tasks: [], settings: mergeSettings({}), view: "list", calendarWeekStart: null, editingId: null, newTaskPriority: 3, editTaskPriority: 3 };
+function emptyCalState() { return { list: null, colors: null, events: [], weekKey: null, loading: false, error: "", day: null }; }
+let state = { tasks: [], settings: mergeSettings({}), view: "list", calendarWeekStart: null, editingId: null, newTaskPriority: 3, editTaskPriority: 3, cal: emptyCalState() };
 let accessToken = null, driveFileId = null, tokenClient = null, saveTimer = null, lastFileSavedAt = null, lastDriveModified = null, localEditSeq = 0, syncStatus = "local";
+let calTokenClient = null, calToken = null, calTokenExp = 0;
 let tokenExpiresAt = 0, renewTimer = null, lastSilentAuth = 0, hasLocalChanges = false;
 
 const $ = s => document.querySelector(s);
@@ -758,6 +818,7 @@ async function fetchAccountEmail() {
 }
 function initGIS() {
   if (typeof google === "undefined" || !google.accounts) { setTimeout(initGIS, 200); return; }
+  initCalendarAuth();
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID, scope: SCOPES,
     callback: async (r) => {
@@ -798,7 +859,87 @@ function signIn() {
   const hint = localStorage.getItem(EMAIL_KEY);
   tokenClient.requestAccessToken(hint ? { hint } : {});
 }
-function signOut() { if (accessToken && google.accounts) google.accounts.oauth2.revoke(accessToken, ()=>{}); clearToken(); driveFileId=null; localStorage.removeItem(DRIVE_FILE_ID_KEY); localStorage.removeItem("ppeplan-signed-in"); localStorage.removeItem(EMAIL_KEY); showWelcome(); toast("Sessão terminada"); }
+function signOut() { if (accessToken && google.accounts) google.accounts.oauth2.revoke(accessToken, ()=>{}); clearToken(); driveFileId=null;
+  // O Calendário é da mesma conta: sai também, para não ficar a mostrar eventos de outra
+  if (calToken && google.accounts) google.accounts.oauth2.revoke(calToken, ()=>{});
+  calToken=null; calTokenExp=0; localStorage.removeItem(CAL_TOKEN_KEY); localStorage.removeItem(CAL_ON_KEY); state.cal=emptyCalState(); localStorage.removeItem(DRIVE_FILE_ID_KEY); localStorage.removeItem("ppeplan-signed-in"); localStorage.removeItem(EMAIL_KEY); showWelcome(); toast("Sessão terminada"); }
+// ====== Google Calendar (autorização incremental) ======
+// O Calendário usa um token próprio: pedir este âmbito nunca põe em risco a
+// ligação ao Drive, que é a que guarda os dados.
+function initCalendarAuth() {
+  if (calTokenClient || typeof google === "undefined" || !google.accounts) return;
+  calTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID, scope: CAL_SCOPE,
+    callback: r => {
+      if (r.error) {
+        state.cal.loading = false;
+        state.cal.error = r.error === "access_denied" ? "Autorização recusada." : "Não foi possível ligar ao Calendário Google.";
+        if (state.view === "calendar") render();
+        return;
+      }
+      calToken = r.access_token;
+      calTokenExp = Date.now() + (parseInt(r.expires_in, 10) || 3600) * 1000;
+      try { localStorage.setItem(CAL_TOKEN_KEY, JSON.stringify({ token: calToken, exp: calTokenExp })); } catch(e) {}
+      localStorage.setItem(CAL_ON_KEY, "1");
+      state.cal.error = "";
+      loadCalendarData(true);
+    }
+  });
+  try {
+    const d = JSON.parse(localStorage.getItem(CAL_TOKEN_KEY) || "null");
+    if (d && d.token && d.exp - Date.now() > 120000) { calToken = d.token; calTokenExp = d.exp; }
+  } catch(e) {}
+}
+function calLinked() { return localStorage.getItem(CAL_ON_KEY) === "1"; }
+function calTokenValid() { return !!calToken && calTokenExp - Date.now() > 60000; }
+function connectCalendar() {
+  initCalendarAuth();
+  if (!calTokenClient) { toast("A carregar a Google...", "error"); return; }
+  state.cal.error = "";
+  const hint = localStorage.getItem(EMAIL_KEY);
+  calTokenClient.requestAccessToken(hint ? { hint } : {});
+}
+function disconnectCalendar() {
+  if (calToken && google.accounts) google.accounts.oauth2.revoke(calToken, ()=>{});
+  calToken = null; calTokenExp = 0;
+  localStorage.removeItem(CAL_TOKEN_KEY); localStorage.removeItem(CAL_ON_KEY);
+  state.cal = emptyCalState();
+  render(); toast("Calendário Google desligado");
+}
+// Renova sem popup (só resulta se o utilizador já autorizou antes)
+function calSilentAuth() {
+  return new Promise(resolve => {
+    initCalendarAuth();
+    if (!calTokenClient) { resolve(false); return; }
+    const original = calTokenClient.callback;
+    const timer = setTimeout(() => { calTokenClient.callback = original; resolve(false); }, 8000);
+    calTokenClient.callback = r => {
+      clearTimeout(timer); calTokenClient.callback = original;
+      if (r.error) { resolve(false); return; }
+      calToken = r.access_token;
+      calTokenExp = Date.now() + (parseInt(r.expires_in, 10) || 3600) * 1000;
+      try { localStorage.setItem(CAL_TOKEN_KEY, JSON.stringify({ token: calToken, exp: calTokenExp })); } catch(e) {}
+      resolve(true);
+    };
+    const hint = localStorage.getItem(EMAIL_KEY);
+    try { calTokenClient.requestAccessToken(hint ? { prompt: "none", hint } : { prompt: "none" }); }
+    catch(e) { clearTimeout(timer); calTokenClient.callback = original; resolve(false); }
+  });
+}
+async function calCall(path) {
+  if (!calTokenValid() && !(await calSilentAuth())) throw new Error("sem-autorizacao");
+  let res = await fetch("https://www.googleapis.com/calendar/v3" + path, { headers: { Authorization: "Bearer " + calToken } });
+  if (res.status === 401 && await calSilentAuth()) {
+    res = await fetch("https://www.googleapis.com/calendar/v3" + path, { headers: { Authorization: "Bearer " + calToken } });
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(()=> "");
+    if (res.status === 403 && /accessNotConfigured|has not been used/i.test(body)) throw new Error("api-desativada");
+    if (res.status === 401 || res.status === 403) throw new Error("sem-autorizacao");
+    throw new Error("erro-" + res.status);
+  }
+  return res.json();
+}
 async function driveCall(url, opts={}) {
   if (!accessToken) throw new Error("Não autenticado");
   const res = await fetch(url, {...opts, headers: {"Authorization":"Bearer "+accessToken, ...(opts.headers||{})}});
@@ -1076,22 +1217,189 @@ function renderGantt() {
   return `${renderStats()}<div class="gantt"><div class="gantt-scroll"><div style="min-width: ${TC+tw}px; --gantt-task-col: ${TC}px"><div class="gantt-header-row"><div class="gantt-cell-label">Atividade</div><div class="gantt-dates" style="grid-template-columns: repeat(${totalDays}, ${dw}px); width: ${tw}px">${dc}</div></div>${rows}</div></div></div><div class="gantt-mobile">${mobileCards}</div>`;
 }
 function getMondayOf(d) { const r=new Date(d); r.setHours(0,0,0,0); r.setDate(r.getDate()-((r.getDay()+6)%7)); return r; }
-function renderCalendar() {
-  const today=today0(); const cm=getMondayOf(today);
-  if (!state.calendarWeekStart) state.calendarWeekStart = isoDate(cm);
-  const sd=new Date(state.calendarWeekStart); const W=5;
-  const bd={}; state.tasks.forEach(t=>{if(t.status==="completed") return; (t.schedule||[]).forEach(s=>{if(!bd[s.date]) bd[s.date]=[]; bd[s.date].push({task:t,hours:s.hours,type:"work"});}); if(t.deadline){if(!bd[t.deadline]) bd[t.deadline]=[]; bd[t.deadline].push({task:t,type:"deadline"});}});
-  const td=W*7; let cells="";
-  for(let i=0;i<td;i++){
-    const d=addDays(sd,i); const it=isoDate(d)===isoDate(today); const we=d.getDay()===0||d.getDay()===6;
-    const items=bd[isoDate(d)]||[]; const v=items.slice(0,4); const m=items.length-v.length;
-    const ih=v.map(x=>{const ac=assigneeColor(x.task.assignee); const sm=(x.task.subtasks||[]).length; const subM=sm>0?`<span class="subtasks-marker" data-act="subtasks" data-id="${x.task.id}" title="${sm} subtarefas">⊟</span>`:''; if(x.type==="deadline"){const s=ac?`cursor:pointer;border-color:${ac.solid};color:${ac.solid}`:'cursor:pointer'; return `<div class="day-task deadline" data-id="${x.task.id}" style="${s}">⚑ ${x.task.assignee?`[${escapeHtml(x.task.assignee)}] `:''}${escapeHtml(x.task.title)}${subM}</div>`;} const s=ac?`cursor:pointer;background:${ac.solid}`:'cursor:pointer'; return `<div class="day-task ${x.task.riskLevel}" data-id="${x.task.id}" style="${s}">${x.task.assignee?`[${escapeHtml(x.task.assignee)}] `:''}${escapeHtml(x.task.title)} · ${x.hours}h${subM}</div>`;}).join("");
-    const ms=(d.getDate()===1||i===0)?` ${d.toLocaleDateString("pt-PT",{month:"short"})}`:"";
-    cells+=`<div class="calendar-day ${it?'today':''} ${we?'weekend':''}"><div class="day-number">${d.getDate()}${ms}</div>${ih}${m>0?`<div class="day-more">+${m} mais</div>`:""}</div>`;
-  }
-  const re=addDays(sd,W*7-1); const tr=`${sd.toLocaleDateString("pt-PT",{day:"numeric",month:"short"})} – ${re.toLocaleDateString("pt-PT",{day:"numeric",month:"short",year:"numeric"})}`;
-  return `${renderStats()}<div class="calendar"><div class="calendar-header"><div><h2>Próximas ${W} semanas</h2><div style="font-size:12px;color:var(--text-muted)">${tr}</div></div><div class="calendar-nav"><button class="btn-secondary" id="cal-prev">‹ Semana</button><button class="btn-secondary" id="cal-today">Hoje</button><button class="btn-secondary" id="cal-next">Semana ›</button></div></div><div class="calendar-weekdays"><div class="calendar-weekday">Seg</div><div class="calendar-weekday">Ter</div><div class="calendar-weekday">Qua</div><div class="calendar-weekday">Qui</div><div class="calendar-weekday">Sex</div><div class="calendar-weekday">Sáb</div><div class="calendar-weekday">Dom</div></div><div class="calendar-grid">${cells}</div></div>`;
+// ====== Dados do Google Calendar ======
+function normalizeEvent(e, cal, colors) {
+  if (!e || e.status === "cancelled" || !e.start) return null;
+  const allDay = !!e.start.date;
+  const start = allDay ? new Date(e.start.date + "T00:00:00") : new Date(e.start.dateTime);
+  const end = allDay ? new Date((e.end && e.end.date ? e.end.date : e.start.date) + "T00:00:00") : new Date(e.end.dateTime);
+  const c = (e.colorId && colors && colors[e.colorId]) ? colors[e.colorId].background : cal.color;
+  return { id: cal.id + "|" + e.id, calId: cal.id, title: e.summary || "(sem título)", start, end, allDay, color: c, link: e.htmlLink || "", where: e.location || "" };
 }
+async function loadCalendarData(force) {
+  const c = state.cal, key = state.calendarWeekStart;
+  if (c.loading || !calLinked() || (!force && c.weekKey === key)) return;
+  c.loading = true; c.error = "";
+  if (state.view === "calendar") render();
+  try {
+    if (!c.list) {
+      const cl = await calCall("/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,summaryOverride,backgroundColor,primary,selected)");
+      c.list = (cl.items || []).map(x => ({ id: x.id, name: x.summaryOverride || x.summary || x.id, color: x.backgroundColor || "#5B6770", primary: !!x.primary, selected: x.selected !== false }));
+      c.list.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0) || a.name.localeCompare(b.name, "pt"));
+      // Primeira vez: respeita o que já está ligado no Google
+      let novo = false;
+      c.list.forEach(x => { if (state.settings.calendars[x.id] === undefined) { state.settings.calendars[x.id] = x.selected; novo = true; } });
+      if (novo) scheduleSave();
+    }
+    if (!c.colors) { try { c.colors = (await calCall("/colors")).event || {}; } catch(e) { c.colors = {}; } }
+    const start = new Date(key + "T00:00:00"), end = addDays(start, 7);
+    const on = c.list.filter(x => state.settings.calendars[x.id] !== false);
+    const lists = await Promise.all(on.map(async cal => {
+      const q = `/calendars/${encodeURIComponent(cal.id)}/events?singleEvents=true&orderBy=startTime&maxResults=250`
+        + `&timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`;
+      try { return ((await calCall(q)).items || []).map(e => normalizeEvent(e, cal, c.colors)).filter(Boolean); }
+      catch(e) { return []; }
+    }));
+    c.events = [].concat.apply([], lists);
+    c.weekKey = key; c.loadedAt = Date.now();
+  } catch (e) {
+    c.events = [];
+    if (e.message === "api-desativada") c.error = "A Google Calendar API ainda não está ativada no projeto Google desta app.";
+    else if (e.message === "sem-autorizacao") { c.error = "A autorização do Calendário expirou — liga outra vez."; localStorage.removeItem(CAL_ON_KEY); calToken = null; }
+    else c.error = "Não foi possível ler o Calendário Google.";
+  }
+  c.loading = false;
+  if (state.view === "calendar") render();
+}
+// Ao voltar à app com o Calendário aberto, recarrega se os eventos já têm mais de 5 minutos
+function calRefreshIfStale() {
+  if (state.view !== "calendar" || !calLinked()) return;
+  if (!state.cal.loadedAt || Date.now() - state.cal.loadedAt > 5 * 60 * 1000) loadCalendarData(true);
+}
+// Eventos sobrepostos ficam lado a lado: cada um recebe a sua faixa (lane) e o total (lanes)
+function layoutEvents(evs) {
+  evs.sort((a, b) => a.start - b.start || b.end - a.end);
+  let cluster = [], ends = [];
+  const flush = () => { const n = Math.max(1, ends.length); cluster.forEach(e => e.lanes = n); cluster = []; ends = []; };
+  for (const e of evs) {
+    if (ends.length && +e.start >= Math.max.apply(null, ends)) flush();
+    let i = ends.findIndex(end => end <= +e.start);
+    if (i === -1) { i = ends.length; }
+    ends[i] = +e.end; e.lane = i; cluster.push(e);
+  }
+  flush();
+  return evs;
+}
+function calSourcesHtml() {
+  const c = state.cal;
+  if (!calLinked()) {
+    return `<div class="cal-note"><span>Vê aqui os eventos do Google Calendar desta conta, lado a lado com as tarefas.</span>
+      <button class="btn-primary" id="cal-connect" style="width:auto;padding:8px 16px;font-size:13px">Ligar Calendário Google</button></div>`;
+  }
+  const taskChip = `<button class="cal-chip ${state.settings.calShowTasks === false ? 'off' : ''}" data-cal="__tasks__" title="Tarefas planeadas do PPEPlan">
+      <span class="dot" style="background:${state.settings.calShowTasks === false ? '' : 'var(--accent)'}"></span><span class="nm">Tarefas PPEPlan</span></button>`;
+  const chips = (c.list || []).map(x => {
+    const off = state.settings.calendars[x.id] === false;
+    return `<button class="cal-chip ${off ? 'off' : ''}" data-cal="${escapeHtml(x.id)}" title="${escapeHtml(x.name)}">
+      <span class="dot" style="background:${off ? '' : escapeHtml(x.color)}"></span><span class="nm">${escapeHtml(x.name)}</span></button>`;
+  }).join("");
+  const estado = c.loading ? `<span style="font-size:11.5px;color:var(--text-muted)">a carregar…</span>` : "";
+  return `<div class="cal-sources">${taskChip}${chips}${estado}
+    <button class="btn-ghost" id="cal-refresh" title="Atualizar eventos" style="margin-left:auto;font-size:13px;padding:4px 8px;color:var(--text-soft)">↻</button>
+    <button class="btn-ghost" id="cal-disconnect" title="Desligar o Calendário Google" style="font-size:11.5px;padding:4px 8px;color:var(--text-soft)">Desligar</button></div>`
+    + (c.error ? `<div class="cal-note" style="color:var(--danger)"><span>⚠ ${escapeHtml(c.error)}</span>${calLinked() ? "" : `<button class="btn-secondary" id="cal-connect" style="padding:5px 11px;font-size:12px">Ligar outra vez</button>`}</div>` : "");
+}
+function renderCalendar() {
+  const today = today0();
+  if (!state.calendarWeekStart) state.calendarWeekStart = isoDate(getMondayOf(today));
+  const ws = new Date(state.calendarWeekStart + "T00:00:00");
+  const days = [];
+  for (let i = 0; i < 7; i++) days.push(addDays(ws, i));
+  const isoToday = isoDate(today);
+  if (!state.cal.day || !days.some(d => isoDate(d) === state.cal.day)) {
+    state.cal.day = days.some(d => isoDate(d) === isoToday) ? isoToday : isoDate(days[0]);
+  }
+
+  // Tarefas PPEPlan do dia (trabalho agendado + prazos), como na linha "dia todo"
+  const bd = {};
+  if (state.settings.calShowTasks !== false) {
+    state.tasks.forEach(t => {
+      if (t.status === "completed") return;
+      (t.schedule || []).forEach(s => { (bd[s.date] = bd[s.date] || []).push({ task: t, hours: s.hours, type: "work" }); });
+      if (t.deadline) (bd[t.deadline] = bd[t.deadline] || []).push({ task: t, type: "deadline" });
+    });
+  }
+  const evs = state.cal.events || [];
+
+  const DOW = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  let headCells = "", allDayCells = "", cols = "", strip = "";
+  days.forEach((d, i) => {
+    const iso = isoDate(d), isT = iso === isoToday, sel = iso === state.cal.day;
+    const we = d.getDay() === 0 || d.getDay() === 6;
+    const cls = `${isT ? 'today' : ''} ${we ? 'weekend' : ''} ${sel ? 'sel' : ''}`;
+    headCells += `<div class="cal-dayhead ${cls}"><div class="dow">${DOW[i]}</div><div class="dnum">${d.getDate()}</div></div>`;
+
+    // Linha "dia todo": eventos de dia inteiro + tarefas
+    const dayStart = new Date(iso + "T00:00:00"), dayEnd = addDays(dayStart, 1);
+    const allDay = evs.filter(e => e.allDay && e.start < dayEnd && e.end > dayStart);
+    const chips = allDay.map(e => {
+      const ink = calInk(e.color);
+      return `<div class="cal-event" style="position:static;background:${escapeHtml(e.color)};color:${ink.fg};border-color:${ink.bd}" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}"><span class="t">${escapeHtml(e.title)}</span></div>`;
+    }).join("");
+    const items = bd[iso] || [], vis = items.slice(0, 3), more = items.length - vis.length;
+    const tasks = vis.map(x => {
+      const ac = assigneeColor(x.task.assignee);
+      const sm = (x.task.subtasks || []).length;
+      const subM = sm > 0 ? `<span class="subtasks-marker" data-act="subtasks" data-id="${x.task.id}" title="${sm} subtarefas">⊟</span>` : '';
+      const who = x.task.assignee ? `[${escapeHtml(x.task.assignee)}] ` : '';
+      if (x.type === "deadline") return `<div class="day-task deadline" data-id="${x.task.id}" style="${ac ? `border-color:${ac.solid};color:${ac.solid}` : ''}" title="Prazo: ${escapeHtml(x.task.title)}">⚑ ${who}${escapeHtml(x.task.title)}${subM}</div>`;
+      return `<div class="day-task ${x.task.riskLevel}" data-id="${x.task.id}" style="${ac ? `background:${ac.solid}` : ''}" title="${escapeHtml(x.task.title)} · ${x.hours}h">${who}${escapeHtml(x.task.title)} · ${x.hours}h${subM}</div>`;
+    }).join("") + (more > 0 ? `<div class="day-more">+${more} mais</div>` : "");
+    allDayCells += `<div class="cal-allday-cell ${sel ? 'sel' : ''}">${chips}${tasks}</div>`;
+
+    // Coluna de horas
+    const timed = layoutEvents(evs.filter(e => !e.allDay && e.start < dayEnd && e.end > dayStart).map(e => ({ ...e })));
+    const blocks = timed.map(e => {
+      const s = Math.max(e.start, dayStart), en = Math.min(e.end, dayEnd);
+      const top = (s - dayStart) / 864000, hgt = Math.max(1.6, (en - s) / 864000); // % do dia (86400000ms/100)
+      const w = 100 / e.lanes, left = e.lane * w;
+      const hrs = `${pad2(e.start.getHours())}:${pad2(e.start.getMinutes())} – ${pad2(e.end.getHours())}:${pad2(e.end.getMinutes())}`;
+      const ink = calInk(e.color);
+      return `<div class="cal-event" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}${e.where ? ' · ' + escapeHtml(e.where) : ''}"
+        style="top:${top.toFixed(3)}%;height:${hgt.toFixed(3)}%;left:calc(${left}% + 2px);width:calc(${w}% - 4px);background:${escapeHtml(e.color)};color:${ink.fg};border-color:${ink.bd}">
+        <span class="t">${escapeHtml(e.title)}</span><span class="h">${hrs}</span></div>`;
+    }).join("");
+    let now = "";
+    if (isT) { const n = new Date(); now = `<div class="cal-now" style="top:${((n.getHours() * 60 + n.getMinutes()) / 14.4).toFixed(3)}%"></div>`; }
+    cols += `<div class="cal-col ${cls}" data-day="${iso}">${'<div class="cal-slot"></div>'.repeat(24)}${blocks}${now}</div>`;
+
+    const nEv = allDay.length + timed.length + items.length;
+    strip += `<button class="${sel ? 'sel' : ''} ${nEv ? 'has-ev' : ''}" data-day="${iso}"><span class="sd">${DOW[i]}</span><span class="sn">${d.getDate()}</span></button>`;
+  });
+
+  let hours = "";
+  for (let h = 0; h < 24; h++) hours += `<div class="cal-hour">${h ? `<span>${pad2(h)}:00</span>` : ""}</div>`;
+
+  const last = days[6];
+  const mesTitulo = days[3].toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+  const range = `${ws.getDate()} ${ws.toLocaleDateString("pt-PT", { month: "short" })} – ${last.getDate()} ${last.toLocaleDateString("pt-PT", { month: "short" })}`;
+  return `<div class="calendar">
+    <div class="calendar-header">
+      <div><h2>${mesTitulo.charAt(0).toUpperCase() + mesTitulo.slice(1)}</h2><div class="cal-range">${range}</div></div>
+      <div class="calendar-nav">
+        <button class="btn-secondary cal-arrow" id="cal-prev" title="Semana anterior">‹</button>
+        <button class="btn-secondary" id="cal-today">Hoje</button>
+        <button class="btn-secondary cal-arrow" id="cal-next" title="Semana seguinte">›</button>
+      </div>
+    </div>
+    ${calSourcesHtml()}
+    <div class="cal-strip">${strip}</div>
+    <div class="cal-head"><div class="cal-tz">GMT${fmtOffset()}</div>${headCells}</div>
+    <div class="cal-allday"><div class="cal-allday-label">dia todo</div>${allDayCells}</div>
+    <div class="cal-body"><div class="cal-rows"><div class="cal-gutter">${hours}</div>${cols}</div></div>
+  </div>`;
+}
+// Cores claras (as pastel do Google) pedem texto escuro, como no Google Calendar
+function calInk(hex) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length < 6) return { fg: "#fff", bd: "rgba(255,255,255,0.35)" };
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 165
+    ? { fg: "#25292F", bd: "rgba(0,0,0,0.10)" }
+    : { fg: "#fff", bd: "rgba(255,255,255,0.35)" };
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+function fmtOffset() { const m = -new Date().getTimezoneOffset(); return (m < 0 ? "-" : "+") + pad2(Math.floor(Math.abs(m) / 60)); }
 
 function bindViewEvents() {
   $$(".task-row").forEach(row => {
@@ -1116,9 +1424,43 @@ function bindViewEvents() {
     ce.addEventListener("click", e => { const m = e.target.closest(".subtasks-marker[data-act='subtasks']"); if (m && m.dataset.id) { e.stopPropagation(); openSubtasksView(m.dataset.id); } });
   }
   const p=$("#cal-prev"), n=$("#cal-next"), t=$("#cal-today");
-  if(p) p.addEventListener("click", ()=>{state.calendarWeekStart=isoDate(addDays(new Date(state.calendarWeekStart),-7)); render();});
-  if(n) n.addEventListener("click", ()=>{state.calendarWeekStart=isoDate(addDays(new Date(state.calendarWeekStart),7)); render();});
-  if(t) t.addEventListener("click", ()=>{state.calendarWeekStart=isoDate(getMondayOf(today0())); render();});
+  const goWeek = iso => { state.calendarWeekStart = iso; state.cal.day = null; render(); };
+  if(p) p.addEventListener("click", ()=>goWeek(isoDate(addDays(new Date(state.calendarWeekStart+"T00:00:00"),-7))));
+  if(n) n.addEventListener("click", ()=>goWeek(isoDate(addDays(new Date(state.calendarWeekStart+"T00:00:00"),7))));
+  if(t) t.addEventListener("click", ()=>goWeek(isoDate(getMondayOf(today0()))));
+  if (state.view === "calendar") bindCalendarEvents();
+}
+
+function bindCalendarEvents() {
+  $("#cal-connect")?.addEventListener("click", connectCalendar);
+  $("#cal-disconnect")?.addEventListener("click", () => { if (confirm("Desligar o Calendário Google desta app?")) disconnectCalendar(); });
+  $("#cal-refresh")?.addEventListener("click", () => loadCalendarData(true));
+  // Ligar/desligar um subcalendário (ou as tarefas do PPEPlan)
+  $$(".cal-chip").forEach(b => b.addEventListener("click", () => {
+    const id = b.dataset.cal;
+    if (id === "__tasks__") { state.settings.calShowTasks = state.settings.calShowTasks === false; scheduleSave(); render(); return; }
+    state.settings.calendars[id] = state.settings.calendars[id] === false;
+    scheduleSave(); render();
+    loadCalendarData(true);
+  }));
+  // Tira de dias (mobile)
+  $$(".cal-strip button").forEach(b => b.addEventListener("click", () => { state.cal.day = b.dataset.day; render(); }));
+  // Abrir o evento no Google Calendar
+  $$(".cal-event[data-link]").forEach(el => el.addEventListener("click", () => {
+    if (el.dataset.link) window.open(el.dataset.link, "_blank", "noopener");
+  }));
+  // Começa o dia visível às 7h (ou um pouco antes do primeiro evento)
+  const body = $(".cal-body");
+  if (body) {
+    // Mede na goteira das horas: em mobile as colunas não selecionadas estão escondidas (altura 0)
+    const ref = $(".cal-gutter .cal-hour");
+    const hPx = (ref && ref.getBoundingClientRect().height) || 46;
+    let h = 7;
+    const timed = (state.cal.events || []).filter(e => !e.allDay);
+    if (timed.length) h = Math.min(h, Math.max(0, Math.min.apply(null, timed.map(e => e.start.getHours())) - 1));
+    body.scrollTop = Math.max(0, h * hPx - 8); // -8: não corta a etiqueta da 1.ª hora
+  }
+  loadCalendarData(false);
 }
 
 function openEditModal(id) {
@@ -1744,7 +2086,7 @@ function init() {
   render();
   initGIS();
   window.addEventListener("focus", ()=>{ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); });
-  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"){ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); } });
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"){ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); calRefreshIfStale(); } });
   window.addEventListener("online", ()=>{ refreshAuthIfNeeded(); if(accessToken) reloadFromDriveIfNewer(); });
   window.addEventListener("beforeunload", ()=>{if(saveTimer){clearTimeout(saveTimer); saveToDrive();}});
 
