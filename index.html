@@ -198,14 +198,21 @@
   .calendar-nav { display: flex; gap: 6px; align-items: center; }
   .calendar-nav .cal-arrow { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; font-size: 15px; }
 
-  /* Chips dos subcalendários (ligar/desligar) */
-  .cal-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--surface-warm); }
-  .cal-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface); font-size: 12px; font-weight: 500; color: var(--text); cursor: pointer; max-width: 240px; }
-  .cal-chip .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--border-strong); }
-  .cal-chip .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cal-chip:hover { border-color: var(--border-strong); }
-  .cal-chip.off { color: var(--text-soft); background: transparent; }
-  .cal-chip.off .dot { background: transparent !important; box-shadow: inset 0 0 0 2px var(--border-strong); }
+  /* Escolha dos calendários: popup ancorado ao botão, fora da área da semana */
+  #cal-cals { display: inline-flex; align-items: center; gap: 5px; }
+  #cal-cals b { font-weight: 600; color: var(--text-muted); }
+  .cal-popover { position: absolute; z-index: 350; width: 260px; max-height: 70vh; overflow-y: auto; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); }
+  .cal-popover h4 { margin: 2px 4px 6px; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-row { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .cal-row:hover { background: var(--surface-warm); }
+  .cal-row input { accent-color: var(--accent); width: 15px; height: 15px; pointer-events: none; }
+  .cal-row .dot { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .cal-row .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+  .cal-pop-actions { display: flex; gap: 4px; }
+  .cal-pop-actions button { flex: 1; font-size: 12px; padding: 6px; color: var(--text-muted); border-radius: 7px; }
+  .cal-pop-actions button:hover { background: var(--surface-warm); color: var(--text); }
+  .cal-empty { font-size: 12px; color: var(--text-soft); padding: 8px; }
   .cal-note { font-size: 12px; color: var(--text-muted); padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
   /* Tira de dias (só mobile) */
@@ -219,7 +226,7 @@
   .cal-strip button.sel.has-ev::after { background: #fff; }
 
   /* Cabeçalho dos dias + linha de "dia todo" */
-  .cal-head, .cal-allday, .cal-rows { display: grid; grid-template-columns: var(--cal-gutter) repeat(7, minmax(0, 1fr)); }
+  .cal-head, .cal-rows { display: grid; grid-template-columns: var(--cal-gutter) repeat(7, minmax(0, 1fr)); }
   /* Cabeçalho dentro do mesmo contentor que rola: as colunas nunca desalinham por causa da barra de scroll */
   .cal-sticky { position: sticky; top: 0; z-index: 8; background: var(--surface); }
   .cal-head { border-bottom: 1px solid var(--border); }
@@ -229,9 +236,10 @@
   .cal-dayhead.today .dow { color: var(--accent); }
   .cal-dayhead.today .dnum { background: var(--accent); color: #fff; }
   .cal-tz { font-size: 9.5px; color: var(--text-soft); display: grid; place-items: end center; padding-bottom: 6px; }
-  .cal-allday { border-bottom: 1px solid var(--border); background: var(--surface); }
-  .cal-allday-label { font-size: 9.5px; color: var(--text-soft); padding: 5px 7px 0 0; text-align: right; text-transform: uppercase; letter-spacing: 0.04em; }
-  .cal-allday-cell { border-left: 1px solid var(--border); padding: 4px; display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 26px; }
+  /* Sem hora (dia inteiro / prazos): etiquetas no cabeçalho do dia, sem linha própria */
+  .dh-chips { display: flex; flex-direction: column; gap: 2px; margin-top: 5px; padding: 0 3px; }
+  .dh-chip { font-size: 10px; line-height: 1.35; padding: 2px 6px; border-radius: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; cursor: pointer; }
+  .dh-chip.deadline { background: transparent; color: var(--danger); border: 1px dashed var(--danger); }
 
   /* Grelha de horas */
   .cal-body { position: relative; overflow-y: auto; overscroll-behavior: contain; max-height: calc(100vh - 320px); min-height: 260px; }
@@ -253,7 +261,6 @@
 
   /* Trabalho planeado do PPEPlan: mesmo formato dos eventos, com riscas e ⏱ para se distinguir */
   .cal-event.task { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 5px, rgba(255,255,255,0) 5px 11px); border-left: 3px solid rgba(0,0,0,0.22); }
-  .cal-event.deadline { background: var(--surface) !important; background-image: none; color: var(--danger); border: 1px dashed var(--danger); box-shadow: none; }
   .cal-event .subtasks-marker { width: 13px; height: 13px; font-size: 9px; margin-left: 3px; background: rgba(255,255,255,0.3); color: inherit; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
@@ -547,13 +554,12 @@
     .calendar-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
     .calendar-header h2 { font-size: 15px; }
     .calendar-nav .btn-secondary { padding: 5px 10px; font-size: 12px; }
-    .cal-sources { padding: 8px 10px; gap: 5px; }
-    .cal-chip { font-size: 11.5px; padding: 5px 10px; max-width: 160px; }
     .cal-note { padding: 8px 12px; }
+    #cal-cals .lbl { display: none; }
     .cal-strip { display: grid; }
     .cal-body { max-height: calc(100vh - 300px); }
-    .cal-head, .cal-allday, .cal-rows { grid-template-columns: var(--cal-gutter) minmax(0, 1fr); }
-    .cal-dayhead:not(.sel), .cal-allday-cell:not(.sel), .cal-col:not(.sel) { display: none; }
+    .cal-head, .cal-rows { grid-template-columns: var(--cal-gutter) minmax(0, 1fr); }
+    .cal-dayhead:not(.sel), .cal-col:not(.sel) { display: none; }
     .cal-dayhead .dnum { font-size: 17px; }
     .day-task { font-size: 11px; }
 
@@ -684,8 +690,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.12";
-const APP_PUBLISHED = "16/09/2026 10:34";
+const APP_VERSION = "2.13";
+const APP_PUBLISHED = "16/09/2026 10:56";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -1283,38 +1289,17 @@ function calRefreshIfStale() {
   if (state.view !== "calendar" || !calLinked()) return;
   if (!state.cal.loadedAt || Date.now() - state.cal.loadedAt > 5 * 60 * 1000) loadCalendarData(true);
 }
-// Coloca o trabalho planeado do dia nas horas livres, contornando as reuniões.
-// É só uma leitura visual do dia: as horas por dia continuam a vir do planeamento.
+// Trabalho planeado do dia, seguido a partir da hora de início. Fica por cima das
+// reuniões (lado a lado), porque muitas vezes as duas coisas acontecem em simultâneo.
 const CAL_WORK_START = 9 * 60;
-function placeTaskBlocks(workItems, timedEvents, dayStart, dayEnd) {
-  if (!workItems.length) return [];
-  // Intervalos ocupados (em minutos desde a meia-noite), já unidos
-  const busy = timedEvents.map(e => ({
-    s: Math.max(0, Math.round((Math.max(e.start, dayStart) - dayStart) / 60000)),
-    e: Math.min(1440, Math.round((Math.min(e.end, dayEnd) - dayStart) / 60000))
-  })).filter(iv => iv.e > iv.s).sort((a, b) => a.s - b.s);
-  const merged = [];
-  busy.forEach(iv => {
-    const last = merged[merged.length - 1];
-    if (last && iv.s <= last.e) last.e = Math.max(last.e, iv.e); else merged.push({ ...iv });
-  });
-
-  const out = [];
-  let cursor = CAL_WORK_START, guard = 0;
-  for (const it of workItems) {
-    let left = Math.max(15, Math.round((parseFloat(it.hours) || 0) * 60));
-    while (left > 0 && cursor < 1440 && guard++ < 300) {
-      const inside = merged.find(iv => cursor >= iv.s && cursor < iv.e);
-      if (inside) { cursor = inside.e; continue; }
-      const next = merged.find(iv => iv.s > cursor);
-      const limit = next ? next.s : 1440;
-      const take = Math.min(left, limit - cursor);
-      if (take <= 0) { cursor = limit; continue; }
-      out.push({ task: it.task, hours: it.hours, s: cursor, e: cursor + take, lane: 0, lanes: 1 });
-      cursor += take; left -= take;
-    }
-  }
-  return out;
+function placeTaskBlocks(workItems, dayStart) {
+  let cursor = CAL_WORK_START;
+  return workItems.map(it => {
+    const mins = Math.max(15, Math.round((parseFloat(it.hours) || 0) * 60));
+    const s = cursor, e = Math.min(1440, cursor + mins);
+    cursor = e;
+    return { kind: "task", task: it.task, hours: it.hours, start: new Date(+dayStart + s * 60000), end: new Date(+dayStart + e * 60000) };
+  }).filter(b => b.end > b.start);
 }
 // Eventos sobrepostos ficam lado a lado: cada um recebe a sua faixa (lane) e o total (lanes)
 function layoutEvents(evs) {
@@ -1332,25 +1317,60 @@ function layoutEvents(evs) {
 }
 function calSourcesHtml() {
   const c = state.cal;
+  const erro = c.error ? `<div class="cal-note" style="color:var(--danger)"><span>⚠ ${escapeHtml(c.error)}</span>${calLinked()
+      ? `<button class="btn-secondary" id="cal-retry" style="padding:5px 11px;font-size:12px">Tentar outra vez</button>`
+      : `<button class="btn-secondary" id="cal-connect" style="padding:5px 11px;font-size:12px">Ligar outra vez</button>`}</div>` : "";
   if (!calLinked()) {
     return `<div class="cal-note"><span>Vê aqui os eventos do Google Calendar desta conta, lado a lado com as tarefas.</span>
-      <button class="btn-primary" id="cal-connect" style="width:auto;padding:8px 16px;font-size:13px">Ligar Calendário Google</button></div>`;
+      <button class="btn-primary" id="cal-connect" style="width:auto;padding:8px 16px;font-size:13px">Ligar Calendário Google</button></div>` + erro;
   }
-  const taskChip = `<button class="cal-chip ${state.settings.calShowTasks === false ? 'off' : ''}" data-cal="__tasks__" title="Tarefas planeadas do PPEPlan">
-      <span class="dot" style="background:${state.settings.calShowTasks === false ? '' : 'var(--accent)'}"></span><span class="nm">Tarefas PPEPlan</span></button>`;
-  const chips = (c.list || []).map(x => {
-    const off = state.settings.calendars[x.id] === false;
-    return `<button class="cal-chip ${off ? 'off' : ''}" data-cal="${escapeHtml(x.id)}" title="${escapeHtml(x.name)}">
-      <span class="dot" style="background:${off ? '' : escapeHtml(x.color)}"></span><span class="nm">${escapeHtml(x.name)}</span></button>`;
-  }).join("");
-  const estado = c.loading ? `<span style="font-size:11.5px;color:var(--text-muted)">a carregar…</span>` : "";
-  return `<div class="cal-sources">${taskChip}${chips}${estado}
-    <button class="btn-ghost" id="cal-refresh" title="Atualizar eventos" style="margin-left:auto;font-size:13px;padding:4px 8px;color:var(--text-soft)">↻</button>
-    <button class="btn-ghost" id="cal-disconnect" title="Desligar o Calendário Google" style="font-size:11.5px;padding:4px 8px;color:var(--text-soft)">Desligar</button></div>`
-    + (c.error ? `<div class="cal-note" style="color:var(--danger)"><span>⚠ ${escapeHtml(c.error)}</span>${calLinked()
-        ? `<button class="btn-secondary" id="cal-retry" style="padding:5px 11px;font-size:12px">Tentar outra vez</button>`
-        : `<button class="btn-secondary" id="cal-connect" style="padding:5px 11px;font-size:12px">Ligar outra vez</button>`}</div>` : "");
+  return erro;
 }
+// Escolha dos calendários num popup, para não roubar espaço à semana
+function calPopoverButton() {
+  const c = state.cal;
+  const on = (c.list || []).filter(x => state.settings.calendars[x.id] !== false).length + (state.settings.calShowTasks === false ? 0 : 1);
+  return `<button class="btn-secondary" id="cal-cals" title="Escolher calendários">▦<span class="lbl"> Calendários</span> <b>${on}</b>${c.loading ? ' <span class="cal-dots">…</span>' : ''}</button>`;
+}
+function openCalPopover(anchor) {
+  closeCalPopover();
+  const c = state.cal;
+  const row = (id, name, color, off, extra) => `<label class="cal-row" data-cal="${escapeHtml(id)}">
+      <input type="checkbox" ${off ? "" : "checked"} />
+      <span class="dot" style="background:${off ? 'transparent' : escapeHtml(color)};box-shadow:inset 0 0 0 2px ${escapeHtml(color)}"></span>
+      <span class="nm">${escapeHtml(name)}</span>${extra || ""}</label>`;
+  const pop = document.createElement("div");
+  pop.className = "cal-popover"; pop.id = "cal-popover";
+  pop.innerHTML = `<h4>Mostrar no calendário</h4>`
+    + row("__tasks__", "Tarefas PPEPlan", "#C73943", state.settings.calShowTasks === false)
+    + `<div class="cal-sep"></div>`
+    + ((c.list || []).length
+        ? c.list.map(x => row(x.id, x.name, x.color, state.settings.calendars[x.id] === false)).join("")
+        : `<div class="cal-empty">${c.loading ? "A carregar calendários…" : "Sem calendários."}</div>`)
+    + `<div class="cal-sep"></div>
+       <div class="cal-pop-actions">
+         <button class="btn-ghost" id="cal-refresh">↻ Atualizar</button>
+         <button class="btn-ghost" id="cal-disconnect">Desligar Google</button>
+       </div>`;
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  const w = 260;
+  pop.style.top = (r.bottom + window.scrollY + 6) + "px";
+  pop.style.left = (Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + window.scrollX) + "px";
+  state.cal.popover = true;
+  pop.querySelectorAll(".cal-row").forEach(el => el.addEventListener("click", e => {
+    e.preventDefault();
+    const id = el.dataset.cal;
+    if (id === "__tasks__") { state.settings.calShowTasks = state.settings.calShowTasks === false; scheduleSave(); render(); return; }
+    state.settings.calendars[id] = state.settings.calendars[id] === false;
+    scheduleSave(); render(); loadCalendarData(true);
+  }));
+  $("#cal-refresh")?.addEventListener("click", () => loadCalendarData(true));
+  $("#cal-disconnect")?.addEventListener("click", () => { closeCalPopover(); if (confirm("Desligar o Calendário Google desta app?")) disconnectCalendar(); });
+  setTimeout(() => document.addEventListener("click", outsideCalClick), 10);
+}
+function outsideCalClick(e) { if (!e.target.closest(".cal-popover") && !e.target.closest("#cal-cals")) { state.cal.popover = false; closeCalPopover(); } }
+function closeCalPopover() { document.getElementById("cal-popover")?.remove(); document.removeEventListener("click", outsideCalClick); }
 function renderCalendar() {
   const today = today0();
   if (!state.calendarWeekStart) state.calendarWeekStart = isoDate(getMondayOf(today));
@@ -1374,59 +1394,59 @@ function renderCalendar() {
   const evs = state.cal.events || [];
 
   const DOW = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-  let headCells = "", allDayCells = "", cols = "", strip = "";
+  let headCells = "", cols = "", strip = "";
   days.forEach((d, i) => {
     const iso = isoDate(d), isT = iso === isoToday, sel = iso === state.cal.day;
     const we = d.getDay() === 0 || d.getDay() === 6;
     const cls = `${isT ? 'today' : ''} ${we ? 'weekend' : ''} ${sel ? 'sel' : ''}`;
-    headCells += `<div class="cal-dayhead ${cls}"><div class="dow">${DOW[i]}</div><div class="dnum">${d.getDate()}</div></div>`;
 
-    // Linha "dia todo": só o que é mesmo do dia inteiro — eventos do Google e prazos
     const dayStart = new Date(iso + "T00:00:00"), dayEnd = addDays(dayStart, 1);
-    const allDay = evs.filter(e => e.allDay && e.start < dayEnd && e.end > dayStart);
-    const chips = allDay.map(e => {
-      const ink = calInk(e.color);
-      return `<div class="cal-event" style="position:static;background:${escapeHtml(e.color)};color:${ink.fg};border-color:${ink.bd}" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}"><span class="t">${escapeHtml(e.title)}</span></div>`;
-    }).join("");
     const items = bd[iso] || [];
-    const deadlines = items.filter(x => x.type === "deadline").map(x => {
-      const ac = assigneeColor(x.task.assignee);
-      const sm = (x.task.subtasks || []).length;
-      const subM = sm > 0 ? `<span class="subtasks-marker" data-act="subtasks" data-id="${x.task.id}" title="${sm} subtarefas">⊟</span>` : '';
-      const who = x.task.assignee ? `[${escapeHtml(x.task.assignee)}] ` : '';
-      return `<div class="cal-event deadline" data-id="${x.task.id}" style="position:static${ac ? `;border-color:${ac.solid};color:${ac.solid}` : ''}" title="Prazo: ${escapeHtml(x.task.title)}"><span class="t">⚑ ${who}${escapeHtml(x.task.title)}${subM}</span></div>`;
-    }).join("");
-    allDayCells += `<div class="cal-allday-cell ${sel ? 'sel' : ''}">${chips}${deadlines}</div>`;
 
-    // Coluna de horas: eventos do Google e trabalho planeado, lado a lado
-    const timed = layoutEvents(evs.filter(e => !e.allDay && e.start < dayEnd && e.end > dayStart).map(e => ({ ...e })));
-    const blocks = timed.map(e => {
-      const s = Math.max(e.start, dayStart), en = Math.min(e.end, dayEnd);
-      const top = (s - dayStart) / 864000, hgt = Math.max(1.6, (en - s) / 864000); // % do dia (86400000ms/100)
-      const w = 100 / e.lanes, left = e.lane * w;
-      const hrs = `${pad2(e.start.getHours())}:${pad2(e.start.getMinutes())} – ${pad2(e.end.getHours())}:${pad2(e.end.getMinutes())}`;
+    // Sem hora (dia inteiro e prazos): ficam como etiquetas no cabeçalho do dia
+    const allDay = evs.filter(e => e.allDay && e.start < dayEnd && e.end > dayStart);
+    let marks = allDay.map(e => {
       const ink = calInk(e.color);
-      return `<div class="cal-event" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}${e.where ? ' · ' + escapeHtml(e.where) : ''}"
-        style="top:${top.toFixed(3)}%;height:${hgt.toFixed(3)}%;left:calc(${left}% + 2px);width:calc(${w}% - 4px);background:${escapeHtml(e.color)};color:${ink.fg};border-color:${ink.bd}">
-        <span class="t">${escapeHtml(e.title)}</span><span class="h">${hrs}</span></div>`;
+      return `<div class="dh-chip" style="background:${escapeHtml(e.color)};color:${ink.fg}" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}">${escapeHtml(e.title)}</div>`;
     }).join("");
-    // As tarefas ocupam os buracos deixados pelas reuniões: vê-se logo o que cabe no dia
-    const work = placeTaskBlocks(items.filter(x => x.type === "work"), timed, dayStart, dayEnd);
-    const workHtml = work.map(b => {
+    marks += items.filter(x => x.type === "deadline").map(x => {
+      const ac = assigneeColor(x.task.assignee);
+      const who = x.task.assignee ? `[${escapeHtml(x.task.assignee)}] ` : '';
+      return `<div class="dh-chip deadline" data-id="${x.task.id}" style="${ac ? `border-color:${ac.solid};color:${ac.solid}` : ''}" title="Prazo: ${escapeHtml(x.task.title)}">⚑ ${who}${escapeHtml(x.task.title)}</div>`;
+    }).join("");
+    headCells += `<div class="cal-dayhead ${cls}"><div class="dow">${DOW[i]}</div><div class="dnum">${d.getDate()}</div>${marks ? `<div class="dh-chips">${marks}</div>` : ""}</div>`;
+
+    // Grelha: reuniões e trabalho planeado repartem a coluna — podem ser em simultâneo
+    const timed = evs.filter(e => !e.allDay && e.start < dayEnd && e.end > dayStart).map(e => ({ ...e, kind: "ev" }));
+    const work = placeTaskBlocks(items.filter(x => x.type === "work"), dayStart);
+    const blocks = layoutEvents(timed.concat(work)).map(b => {
+      const s = new Date(Math.max(b.start, dayStart)), en = new Date(Math.min(b.end, dayEnd));
+      const top = (s - dayStart) / 864000, hgt = Math.max(1.6, (en - s) / 864000); // % do dia (86400000ms/100)
+      // Sobreposição parcial (como no Google): quem está em cima tapa só parte do de trás,
+      // em vez de repartir a coluna em fatias estreitas
+      const w = 100 / b.lanes, left = b.lane * w;
+      const wide = b.lane === b.lanes - 1 ? w : Math.min(w * 1.7, 100 - left);
+      const hrs = `${pad2(b.start.getHours())}:${pad2(b.start.getMinutes())} – ${pad2(b.end.getHours())}:${pad2(b.end.getMinutes())}`;
+      const pos = `top:${top.toFixed(3)}%;height:${hgt.toFixed(3)}%;left:calc(${left}% + 2px);width:calc(${wide}% - 4px);z-index:${Math.min(4, b.lane + 1)}`;
+      if (b.kind === "ev") {
+        const ink = calInk(b.color);
+        return `<div class="cal-event" data-link="${escapeHtml(b.link)}" title="${escapeHtml(b.title)}${b.where ? ' · ' + escapeHtml(b.where) : ''}"
+          style="${pos};background:${escapeHtml(b.color)};color:${ink.fg};border-color:${ink.bd}">
+          <span class="t">${escapeHtml(b.title)}</span><span class="h">${hrs}</span></div>`;
+      }
       const t = b.task, ac = assigneeColor(t.assignee);
       const bg = ac ? ac.solid : (t.riskLevel === "risk" ? "#C73943" : t.riskLevel === "tight" ? "#B8862E" : "#4F7A4E");
       const ink = calInk(bg);
-      const top = b.s / 14.4, hgt = Math.max(1.6, (b.e - b.s) / 14.4); // minutos → % do dia (1440/100)
       const sm = (t.subtasks || []).length;
       const subM = sm > 0 ? `<span class="subtasks-marker" data-act="subtasks" data-id="${t.id}" title="${sm} subtarefas">⊟</span>` : '';
       const who = t.assignee ? `[${escapeHtml(t.assignee)}] ` : '';
       return `<div class="cal-event task" data-id="${t.id}" title="Trabalho planeado: ${escapeHtml(t.title)} · ${b.hours}h neste dia (prazo ${fmtDate(t.deadline)})"
-        style="top:${top.toFixed(3)}%;height:${hgt.toFixed(3)}%;left:calc(${b.lane * (100 / b.lanes)}% + 2px);width:calc(${100 / b.lanes}% - 4px);background:${bg};color:${ink.fg};border-color:${ink.bd}">
-        <span class="t">⏱ ${who}${escapeHtml(t.title)}${subM}</span><span class="h">${pad2(Math.floor(b.s / 60))}:${pad2(b.s % 60)} – ${pad2(Math.floor(b.e / 60) % 24)}:${pad2(b.e % 60)}</span></div>`;
+        style="${pos};background:${bg};color:${ink.fg};border-color:${ink.bd}">
+        <span class="t">⏱ ${who}${escapeHtml(t.title)}${subM}</span><span class="h">${hrs}</span></div>`;
     }).join("");
     let now = "";
     if (isT) { const n = new Date(); now = `<div class="cal-now" style="top:${((n.getHours() * 60 + n.getMinutes()) / 14.4).toFixed(3)}%"></div>`; }
-    cols += `<div class="cal-col ${cls}" data-day="${iso}">${'<div class="cal-slot"></div>'.repeat(24)}${blocks}${workHtml}${now}</div>`;
+    cols += `<div class="cal-col ${cls}" data-day="${iso}">${'<div class="cal-slot"></div>'.repeat(24)}${blocks}${now}</div>`;
 
     const nEv = allDay.length + timed.length + items.length;
     strip += `<button class="${sel ? 'sel' : ''} ${nEv ? 'has-ev' : ''}" data-day="${iso}"><span class="sd">${DOW[i]}</span><span class="sn">${d.getDate()}</span></button>`;
@@ -1442,6 +1462,7 @@ function renderCalendar() {
     <div class="calendar-header">
       <div><h2>${mesTitulo.charAt(0).toUpperCase() + mesTitulo.slice(1)}</h2><div class="cal-range">${range}</div></div>
       <div class="calendar-nav">
+        ${calLinked() ? calPopoverButton() : ""}
         <button class="btn-secondary cal-arrow" id="cal-prev" title="Semana anterior">‹</button>
         <button class="btn-secondary" id="cal-today">Hoje</button>
         <button class="btn-secondary cal-arrow" id="cal-next" title="Semana seguinte">›</button>
@@ -1452,7 +1473,6 @@ function renderCalendar() {
     <div class="cal-body">
       <div class="cal-sticky">
         <div class="cal-head"><div class="cal-tz">GMT${fmtOffset()}</div>${headCells}</div>
-        <div class="cal-allday"><div class="cal-allday-label">dia todo</div>${allDayCells}</div>
       </div>
       <div class="cal-rows"><div class="cal-gutter">${hours}</div>${cols}</div>
     </div>
@@ -1502,21 +1522,21 @@ function bindViewEvents() {
 
 function bindCalendarEvents() {
   $("#cal-connect")?.addEventListener("click", connectCalendar);
-  $("#cal-disconnect")?.addEventListener("click", () => { if (confirm("Desligar o Calendário Google desta app?")) disconnectCalendar(); });
-  $("#cal-refresh")?.addEventListener("click", () => loadCalendarData(true));
   $("#cal-retry")?.addEventListener("click", () => { state.cal.list = null; loadCalendarData(true); });
-  // Ligar/desligar um subcalendário (ou as tarefas do PPEPlan)
-  $$(".cal-chip").forEach(b => b.addEventListener("click", () => {
-    const id = b.dataset.cal;
-    if (id === "__tasks__") { state.settings.calShowTasks = state.settings.calShowTasks === false; scheduleSave(); render(); return; }
-    state.settings.calendars[id] = state.settings.calendars[id] === false;
-    scheduleSave(); render();
-    loadCalendarData(true);
-  }));
+  const calsBtn = $("#cal-cals");
+  if (calsBtn) {
+    calsBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      if (document.getElementById("cal-popover")) { state.cal.popover = false; closeCalPopover(); }
+      else openCalPopover(calsBtn);
+    });
+    // Mantém o popup aberto entre redesenhos (ex.: ao ligar/desligar um calendário)
+    if (state.cal.popover) openCalPopover(calsBtn);
+  }
   // Tira de dias (mobile)
   $$(".cal-strip button").forEach(b => b.addEventListener("click", () => { state.cal.day = b.dataset.day; render(); }));
   // Abrir o evento no Google Calendar
-  $$(".cal-event[data-link]").forEach(el => el.addEventListener("click", () => {
+  $$("[data-link]").forEach(el => el.addEventListener("click", () => {
     if (el.dataset.link) window.open(el.dataset.link, "_blank", "noopener");
   }));
   // Começa o dia visível às 7h (ou um pouco antes do primeiro evento)
