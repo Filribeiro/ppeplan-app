@@ -79,9 +79,11 @@
   .sync-pill.error .dot { background: var(--danger); }
   .sync-pill.error { color: var(--danger); border-color: var(--danger); }
 
-  .main { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; min-height: 0; }
+  /* minmax(0,...) + min-width:0: sem isto, um elemento largo lá dentro (ex.: um título
+     com white-space:nowrap) alarga a app toda e o conteúdo sai fora do ecrã */
+  .main { display: grid; grid-template-columns: 300px minmax(0, 1fr); overflow: hidden; min-height: 0; min-width: 0; }
   .sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px 18px; }
-  .content { overflow: auto; padding: 18px 20px; min-height: 0; }
+  .content { overflow: auto; padding: 18px 20px; min-height: 0; min-width: 0; }
 
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -331,6 +333,13 @@
   /* Título multi-linha: o nome da subtarefa aparece sempre por inteiro */
   #sub-gantt .si-title { resize: none; overflow: hidden; font-family: inherit; line-height: 1.3; min-height: 24px; align-self: center; }
 
+  /* Cabeçalho da vista de subtarefas */
+  .drilldown-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .drilldown-header .dh-main { flex: 1; min-width: 0; }
+  .drilldown-header h2 { margin: 0; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .drilldown-header #sub-modal-summary { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .drilldown-header #sub-back { white-space: nowrap; }
+
   /* ===== Subtarefas em cartões (usado em mobile, onde a Gantt não cabe) ===== */
   .sub-cards { display: none; flex-direction: column; gap: 8px; margin-bottom: 12px; }
   .sc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; box-shadow: var(--shadow-sm); }
@@ -371,6 +380,11 @@
   @media (max-width: 768px) {
     #sub-gantt .sub-task-name { grid-template-columns: 20px 16px 1fr auto auto; gap: 3px; padding: 3px 6px; }
     #sub-gantt .sub-task-name .si-assignee { display: none; }
+    /* Cabeçalho compacto: o botão encurta para sobrar espaço ao título */
+    .drilldown-header { gap: 10px; margin-bottom: 12px; }
+    .drilldown-header .dh-long { display: none; }
+    .drilldown-header #sub-back { padding: 8px 12px; font-size: 13px; }
+    .drilldown-header h2 { font-size: 16px; }
     /* A Gantt (.gantt-scroll) está escondida em mobile — a edição passa para os cartões */
     .sub-cards { display: flex; }
     .sub-savebar { display: flex; }
@@ -452,8 +466,8 @@
     .sync-pill #sync-text { display: none; }
     .btn-ghost { padding: 6px 8px; font-size: 16px; }
 
-    .main { grid-template-columns: 1fr; overflow: visible; }
-    .content { padding: 12px; overflow: visible; }
+    .main { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+    .content { padding: 12px; overflow: visible; min-width: 0; }
 
     .sidebar { position: fixed; top: 0; left: 0; right: 0; bottom: 0; max-height: 100vh; z-index: 90; border-right: none; padding: 56px 18px 24px; transform: translateY(100%); transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); overflow-y: auto; box-shadow: var(--shadow-lg); }
     .sidebar.open { transform: translateY(0); }
@@ -617,8 +631,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.9";
-const APP_PUBLISHED = "16/09/2026 09:39";
+const APP_VERSION = "2.10";
+const APP_PUBLISHED = "16/09/2026 09:48";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -922,11 +936,11 @@ function renderSubtasksView() {
   const t = state.tasks.find(x=>x.id===state.drilldownTaskId);
   if (!t) return `<div class="empty-state"><h3>Tarefa não encontrada</h3></div>`;
   return `
-    <div class="drilldown-header" style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)">
-      <button class="btn-secondary" id="sub-back">← Voltar à lista</button>
-      <div style="flex:1;min-width:0">
-        <h2 id="sub-modal-title" style="margin:0;font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.title)}</h2>
-        <div id="sub-modal-summary" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+    <div class="drilldown-header">
+      <button class="btn-secondary" id="sub-back">← Voltar<span class="dh-long"> à lista</span></button>
+      <div class="dh-main">
+        <h2 id="sub-modal-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</h2>
+        <div id="sub-modal-summary"></div>
       </div>
       <span class="priority-badge priority-${t.manualPriority}">P${t.manualPriority}</span>
     </div>
