@@ -243,6 +243,11 @@
 
   /* Grelha de horas */
   .cal-body { position: relative; overflow-y: auto; overscroll-behavior: contain; max-height: calc(100vh - 320px); min-height: 260px; }
+  /* Em ecrã grande o calendário ocupa a altura toda disponível, sem sobrar espaço em baixo */
+  @media (min-width: 769px) {
+    .calendar { height: 100%; }
+    .cal-body { flex: 1 1 auto; max-height: none; }
+  }
   .cal-rows { position: relative; }
   .cal-gutter .cal-hour { height: var(--cal-hour); position: relative; }
   .cal-gutter .cal-hour span { position: absolute; top: -7px; right: 8px; font-size: 10.5px; color: var(--text-soft); background: var(--surface); padding: 0 2px; }
@@ -690,8 +695,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.13";
-const APP_PUBLISHED = "16/09/2026 10:56";
+const APP_VERSION = "2.14";
+const APP_PUBLISHED = "16/09/2026 11:20";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -1403,16 +1408,11 @@ function renderCalendar() {
     const dayStart = new Date(iso + "T00:00:00"), dayEnd = addDays(dayStart, 1);
     const items = bd[iso] || [];
 
-    // Sem hora (dia inteiro e prazos): ficam como etiquetas no cabeçalho do dia
+    // Só eventos de dia inteiro do Google: as tarefas aparecem na grelha, não se repetem aqui
     const allDay = evs.filter(e => e.allDay && e.start < dayEnd && e.end > dayStart);
-    let marks = allDay.map(e => {
+    const marks = allDay.map(e => {
       const ink = calInk(e.color);
       return `<div class="dh-chip" style="background:${escapeHtml(e.color)};color:${ink.fg}" data-link="${escapeHtml(e.link)}" title="${escapeHtml(e.title)}">${escapeHtml(e.title)}</div>`;
-    }).join("");
-    marks += items.filter(x => x.type === "deadline").map(x => {
-      const ac = assigneeColor(x.task.assignee);
-      const who = x.task.assignee ? `[${escapeHtml(x.task.assignee)}] ` : '';
-      return `<div class="dh-chip deadline" data-id="${x.task.id}" style="${ac ? `border-color:${ac.solid};color:${ac.solid}` : ''}" title="Prazo: ${escapeHtml(x.task.title)}">⚑ ${who}${escapeHtml(x.task.title)}</div>`;
     }).join("");
     headCells += `<div class="cal-dayhead ${cls}"><div class="dow">${DOW[i]}</div><div class="dnum">${d.getDate()}</div>${marks ? `<div class="dh-chips">${marks}</div>` : ""}</div>`;
 
@@ -1487,6 +1487,15 @@ function calInk(hex) {
     ? { fg: "#25292F", bd: "rgba(0,0,0,0.10)" }
     : { fg: "#fff", bd: "rgba(255,255,255,0.35)" };
 }
+// Em mobile a página é que rola, por isso a grelha é esticada até ao fundo do ecrã
+// (no desktop trata disso o flex). Evita a faixa vazia por baixo do calendário.
+function calSizeBody() {
+  const body = $(".cal-body");
+  if (!body) return;
+  if (window.innerWidth > 768) { body.style.maxHeight = ""; return; }
+  const top = body.getBoundingClientRect().top; // distância ao topo do ecrã
+  body.style.maxHeight = Math.max(260, window.innerHeight - top - 12) + "px";
+}
 function pad2(n) { return String(n).padStart(2, "0"); }
 function fmtOffset() { const m = -new Date().getTimezoneOffset(); return (m < 0 ? "-" : "+") + pad2(Math.floor(Math.abs(m) / 60)); }
 
@@ -1550,6 +1559,7 @@ function bindCalendarEvents() {
     if (timed.length) h = Math.min(h, Math.max(0, Math.min.apply(null, timed.map(e => e.start.getHours())) - 1));
     // A grelha começa logo a seguir ao cabeçalho fixo, por isso basta a altura das horas
     body.scrollTop = Math.max(0, h * hPx - 8); // -8: não corta a etiqueta da 1.ª hora
+    calSizeBody();
   }
   // Fora do render atual: carregar dados nunca pode redesenhar o ecrã a meio deste render
   setTimeout(() => loadCalendarData(false), 0);
@@ -1989,6 +1999,7 @@ function autoGrow(el) { if (el.offsetParent === null) return; el.style.height = 
 // destruiria o campo que está a ser escrito.
 let subResizeTimer = null, subResizeWidth = window.innerWidth;
 window.addEventListener("resize", () => {
+  if (state.view === "calendar") calSizeBody();
   if (!state.drilldownTaskId || window.innerWidth === subResizeWidth) return;
   subResizeWidth = window.innerWidth;
   clearTimeout(subResizeTimer);
