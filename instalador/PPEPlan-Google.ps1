@@ -12,6 +12,7 @@
 
 $script:PPE_DataFileName  = 'ppeplan-data.json'
 $script:PPE_EmailStateName = 'ppeplan-emails-enviados.json'
+$script:PPE_PcsFileName    = 'ppeplan-pcs.json'
 $script:PPE_TokenPath = Join-Path $env:LOCALAPPDATA 'PPEPlan\google-token.xml'
 $script:PPE_Scopes = @(
     'openid', 'email',

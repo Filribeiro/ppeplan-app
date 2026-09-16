@@ -16,6 +16,8 @@ try {
 
     $config = Get-PPEConfig
     if (-not (Get-PPEGoogleAccount)) { return }
+    # Dá sinal de vida na lista de PCs da conta (não é motivo para falhar o resto)
+    try { Update-PPEPcStatus $config } catch { }
     $data = Read-PPEData $config -Quiet
     $alerts = Get-PPEAlerts $data $config
     $now = Get-Date

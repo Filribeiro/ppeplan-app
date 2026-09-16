@@ -24,6 +24,12 @@ $tmp = Join-Path $script:PPE_StateDir 'atualizacao'
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
+# Que versão dos scripts corre neste PC (a app mostra-a nas Definições)
+function Set-PPEScriptsVersion($Manifest) {
+    Set-PPEStateValue 'scriptsPublished' ([string]$Manifest.published)
+    Set-PPEStateValue 'scriptsCommit' ([string]$Manifest.commit)
+}
+
 $changed = @()
 try {
     foreach ($f in $manifest.files.PSObject.Properties) {
@@ -36,10 +42,11 @@ try {
         if ((Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash -ne $hash) { throw "Hash inválido em $name (publicação a meio?)" }
         $changed += $name
     }
-    if ($changed.Count -eq 0) { return $false }
+    if ($changed.Count -eq 0) { Set-PPEScriptsVersion $manifest; return $false }
 
     # Só substitui depois de todos descarregados e verificados
     foreach ($name in $changed) { Copy-Item -LiteralPath (Join-Path $tmp $name) -Destination (Join-Path $PSScriptRoot $name) -Force }
+    Set-PPEScriptsVersion $manifest
     Write-PPELog "Atualizado ($($manifest.published)): $($changed -join ', ')"
 
     # Configurar.ps1 mudou (ex.: definição da tarefa agendada): aplica neste PC sem perguntas

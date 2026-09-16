@@ -287,6 +287,15 @@
   .alert-ctl input[type="time"] { width: 130px; }
   .alert-ctl input[type="time"]:disabled { opacity: .45; }
 
+  .pc-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .pc-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; background: var(--surface-warm); border-radius: var(--radius-sm); }
+  .pc-name { font-weight: 500; font-size: 13px; }
+  .pc-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .pc-tag { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: var(--radius-pill); white-space: nowrap; }
+  .pc-tag.ok { color: var(--success); background: var(--success-soft); }
+  .pc-tag.wait { color: var(--warning); background: var(--warning-soft); }
+  .pc-tag.off { color: var(--text-muted); background: var(--surface); }
+
   .sync-banner { display: none; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--ppe-red-soft); color: var(--ppe-red-dark); border-bottom: 1px solid var(--ppe-red); font-size: 13px; font-weight: 500; }
   .sync-banner.show { display: flex; }
   .sync-banner button { padding: 6px 14px; background: var(--ppe-red); color: #fff; border: none; border-radius: var(--radius-pill); font-weight: 600; font-size: 12px; cursor: pointer; }
@@ -653,6 +662,7 @@
     <div class="settings-desc">Enviados pelo PPEPlan instalado no Windows, nos dias úteis. Valem para todos os PCs desta conta; para desligar as notificações só num PC: menu Iniciar → PPEPlan.</div>
     <div id="s-alerts"></div>
     <div class="settings-row"><div><div class="settings-label">Enviar emails para</div><div class="settings-desc">Vazio = a própria conta Google. Vários: separar por vírgula</div></div><input id="s-email-to" class="input" type="text" placeholder="conta Google" autocomplete="off" style="width:200px" /></div>
+    <div class="settings-row" style="grid-template-columns:1fr"><div><div class="settings-label">PCs desta conta</div><div class="settings-desc">Os que têm o PPEPlan instalado no Windows. Cada um apanha sozinho a versão publicada em até 1 hora.</div><div class="pc-list" id="s-pcs"></div></div></div>
     <div class="settings-section">Dados</div>
     <div class="settings-row"><div><div class="settings-label">Limpar ordem manual</div></div><button class="btn-secondary" id="s-clear-manual">Limpar</button></div>
     <div class="settings-row"><div><div class="settings-label">Exportar dados</div></div><button class="btn-secondary" id="s-export">Exportar</button></div>
@@ -695,8 +705,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.14";
-const APP_PUBLISHED = "16/09/2026 11:20";
+const APP_VERSION = "2.15";
+const APP_PUBLISHED = "16/09/2026 22:23";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -709,6 +719,8 @@ const CAL_ON_KEY = "ppeplan-cal-on";
 const TOKEN_KEY = "ppeplan-token";
 const EMAIL_KEY = "ppeplan-account-email";
 const FILE_NAME = "ppeplan-data.json";
+// Escrito pelos scripts do Windows (PPEPlan-Common.ps1: Update-PPEPcStatus)
+const PCS_FILE_NAME = "ppeplan-pcs.json";
 
 // alerts: lido pelo PPEPlan instalado no Windows (instalador/scripts) — emails e notificações
 const ALERT_DEFS = [
@@ -997,6 +1009,26 @@ async function fetchDriveData() {
   const t = await r.text(); if (!t.trim()) return null;
   try { return JSON.parse(t); } catch(e) { return null; }
 }
+// Lista dos PCs com o PPEPlan instalado, escrita no Drive pelos scripts do Windows
+async function fetchPcStatus() {
+  const q = encodeURIComponent(`name='${PCS_FILE_NAME}' and trashed=false`);
+  const r = await driveCall(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime&fields=files(id)`);
+  if (!r.ok) return null;
+  const d = await r.json();
+  if (!d.files || !d.files.length) return [];
+  const c = await driveCall(`https://www.googleapis.com/drive/v3/files/${d.files[0].id}?alt=media`);
+  if (!c.ok) return null;
+  const t = await c.text(); if (!t.trim()) return [];
+  try { const j = JSON.parse(t); return Array.isArray(j.pcs) ? j.pcs : (j.pcs ? [j.pcs] : []); } catch (e) { return null; }
+}
+// Versão dos scripts que está publicada (o mesmo ficheiro que cada PC consulta)
+async function fetchPublishedScripts() {
+  try {
+    const r = await fetch("instalador/versao.json?t=" + Date.now(), { cache: "no-store" });
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+
 function applyDriveData(d) {
   if (d.tasks) state.tasks = d.tasks;
   if (d.settings) state.settings = mergeSettings(d.settings);
@@ -2121,7 +2153,43 @@ function renderSubCards() {
 function renderSubtaskList() {}
 function renderMiniGantt() {}
 
-function openSettings() { $("#s-daily-hours").value=state.settings.dailyHours; $("#s-weekends").checked=state.settings.workWeekends; $("#s-w-deadline").value=state.settings.weights.deadline; $("#s-w-slack").value=state.settings.weights.slack; $("#s-w-priority").value=state.settings.weights.priority; renderAlertSettings(); $("#settings-modal").classList.add("active"); }
+// "2026-09-16 22:11" (versao.json) -> "16/09 22:11"
+function formatPcVersion(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/.exec(String(s || ""));
+  return m ? `${m[3]}/${m[2]} ${m[4]}` : "";
+}
+// Cada PC dá sinal de hora a hora (e logo que mude de versão)
+function formatPcSeen(iso) {
+  const t = Date.parse(iso || "");
+  if (isNaN(t)) return { text: "sem sinal", stale: true };
+  const h = Math.round((Date.now() - t) / 3600000);
+  if ((Date.now() - t) / 60000 < 90) return { text: "a dar sinal", stale: false };
+  if (h < 48) return { text: `visto há ${h} h`, stale: h >= 24 };
+  return { text: `visto há ${Math.round(h / 24)} dias`, stale: true };
+}
+async function renderPcStatus() {
+  const box = $("#s-pcs");
+  if (!box) return;
+  if (!accessToken) { box.innerHTML = `<div class="settings-desc">Entra com a conta Google para veres os PCs.</div>`; return; }
+  box.innerHTML = `<div class="settings-desc">A procurar…</div>`;
+  const [pcs, manifest] = await Promise.all([fetchPcStatus(), fetchPublishedScripts()]);
+  if (!pcs) { box.innerHTML = `<div class="settings-desc">Não foi possível ler a lista de PCs.</div>`; return; }
+  if (!pcs.length) { box.innerHTML = `<div class="settings-desc">Nenhum PC deu sinal ainda. Os emails e as notificações vêm do PPEPlan instalado no Windows.</div>`; return; }
+  const publicado = manifest && manifest.published ? String(manifest.published) : null;
+  box.innerHTML = pcs.slice()
+    .sort((a, b) => String(b.visto || "").localeCompare(String(a.visto || "")))
+    .map(pc => {
+      const seen = formatPcSeen(pc.visto), versao = formatPcVersion(pc.scripts);
+      let tag = "";
+      if (seen.stale) tag = `<span class="pc-tag off">sem sinal</span>`;
+      else if (String(pc.scripts || "") === publicado) tag = `<span class="pc-tag ok">atualizado</span>`;
+      else if (publicado) tag = `<span class="pc-tag wait">a atualizar</span>`;
+      const meta = [versao ? `scripts de ${versao}` : "versão ainda desconhecida", seen.text];
+      if (pc.notificacoes === false) meta.push("notificações desligadas");
+      return `<div class="pc-row"><div><div class="pc-name">${escapeHtml(pc.nome || "PC")}</div><div class="pc-meta">${escapeHtml(meta.join(" · "))}</div></div>${tag}</div>`;
+    }).join("");
+}
+function openSettings() { renderPcStatus(); $("#s-daily-hours").value=state.settings.dailyHours; $("#s-weekends").checked=state.settings.workWeekends; $("#s-w-deadline").value=state.settings.weights.deadline; $("#s-w-slack").value=state.settings.weights.slack; $("#s-w-priority").value=state.settings.weights.priority; renderAlertSettings(); $("#settings-modal").classList.add("active"); }
 function renderAlertSettings() {
   const a = state.settings.alerts;
   $("#s-alerts").innerHTML = ALERT_DEFS.map(([k, label, desc]) => `<div class="settings-row"><div><div class="settings-label">${label}</div><div class="settings-desc">${desc}</div></div><div class="alert-ctl"><input type="time" class="input" id="s-a-${k}-time" value="${escapeHtml(a[k].time)}" ${a[k].on?"":"disabled"} /><input type="checkbox" id="s-a-${k}-on" title="Ligar/desligar" ${a[k].on?"checked":""} /></div></div>`).join("");

@@ -81,6 +81,54 @@ function ConvertTo-TodayTime([string]$HHmm) {
     [DateTime]::ParseExact($HHmm, 'HH:mm', $script:INV)
 }
 
+# ---------- Que PCs desta conta têm o PPEPlan instalado ----------
+#  ppeplan-pcs.json no Drive: um registo por PC com a versão dos scripts e a
+#  hora em que deu sinal. A app mostra-o nas Definições, para se ver sem abrir
+#  o log se cada PC já apanhou a versão publicada.
+#  { "pcs": [ { id, nome, scripts, commit, notificacoes, visto } ] }
+
+$script:PPE_PcRegistoMinutos = 60  # sem novidades, escreve no máximo de hora a hora
+$script:PPE_PcEsquecerDias   = 30  # PC sem dar sinal há mais tempo sai da lista
+
+function ConvertFrom-PPEUtcText([string]$s) {
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    [DateTime]::Parse($s, $script:INV, $styles)
+}
+
+function Update-PPEPcStatus($Config) {
+    $me = Get-PPEInstallId
+    $state = Get-PPEState
+    $assinatura = '{0}|{1}|{2}' -f $me.Name, [string]$state.scriptsPublished, [bool]$Config.notifications.enabled
+    # Escreve quando algo muda; sem novidades, só de hora a hora
+    if ($state.pcStatusSig -eq $assinatura -and $state.pcStatusAt -and
+        ((Get-Date) - [DateTime]::Parse([string]$state.pcStatusAt, $script:INV)).TotalMinutes -lt $script:PPE_PcRegistoMinutos) { return }
+
+    $lista = @()
+    $file = Find-PPEDriveStateFile $script:PPE_PcsFileName
+    if ($file) {
+        $text = Read-PPEDriveText $file.id
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            try { $lista = @(($text | ConvertFrom-Json).pcs) } catch { }
+        }
+    }
+    $limite = [DateTime]::UtcNow.AddDays(-$script:PPE_PcEsquecerDias)
+    $outros = @($lista | Where-Object {
+        if (-not $_ -or $_.id -eq $me.Id -or -not $_.visto) { return $false }
+        try { (ConvertFrom-PPEUtcText ([string]$_.visto)) -gt $limite } catch { $false }
+    })
+    $meu = [pscustomobject]@{
+        id           = $me.Id
+        nome         = $me.Name
+        scripts      = [string]$state.scriptsPublished
+        commit       = [string]$state.scriptsCommit
+        notificacoes = [bool]$Config.notifications.enabled
+        visto        = [DateTime]::UtcNow.ToString('o')
+    }
+    Write-PPEDriveText $script:PPE_PcsFileName (@{ pcs = @($outros) + @($meu) } | ConvertTo-Json -Depth 5)
+    Set-PPEStateValue 'pcStatusSig' $assinatura
+    Set-PPEStateValue 'pcStatusAt' (Get-Date).ToString('o')
+}
+
 # ---------- Datas (mesma semântica do JS) ----------
 
 # new Date("YYYY-MM-DD") em JS = meia-noite UTC; convertida para hora local
