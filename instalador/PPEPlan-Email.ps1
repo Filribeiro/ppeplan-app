@@ -183,20 +183,75 @@ function Send-PPEEmail($Mail, $Alerts) {
     Send-PPEGmail -To $to -Subject $Mail.Subject -Html $Mail.Html
 }
 
-# Registo partilhado entre PCs: { "emailSent": "2026-09-15", "emailSentEvening": "..." }
+# ---------- Registo partilhado da conta (ppeplan-emails-enviados.json no Drive) ----------
+#   { "emailSent": "2026-09-15", "emailSentBy": "PC-CASA",
+#     "reservaMorning": { "dia": "2026-09-15", "pc": "PC-CASA", "id": "a1b2c3d4", "as": "...Z" } }
+#
+# O email é da conta, não da instalação: antes de enviar, o PC reserva o slot do
+# dia no Drive e só envia se a reserva continuar a ser dele passados uns segundos.
+# Assim, com a app em vários PCs da mesma conta, só sai um email por hora agendada.
+
+$script:PPE_ReservaEsperaSegundos  = 20  # tempo para a reserva do outro PC chegar ao Drive
+$script:PPE_ReservaValidadeMinutos = 15  # reserva mais velha do que isto: esse PC desistiu
+
 function Get-PPESharedEmailState {
-    $file = Find-PPEDriveFile $script:PPE_EmailStateName
+    $file = Find-PPEDriveStateFile $script:PPE_EmailStateName
     if (-not $file) { return [pscustomobject]@{} }
     $text = Read-PPEDriveText $file.id
     if ([string]::IsNullOrWhiteSpace($text)) { return [pscustomobject]@{} }
     return $text | ConvertFrom-Json
 }
 
-function Set-PPESharedEmailState([string]$Key, [string]$Value) {
+function Set-PPESharedEmailValues([hashtable]$Values) {
     $state = Get-PPESharedEmailState
-    $state | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force
-    $state | Add-Member -NotePropertyName ($Key + 'By') -NotePropertyValue $env:COMPUTERNAME -Force
-    Write-PPEDriveText $script:PPE_EmailStateName ($state | ConvertTo-Json)
+    foreach ($key in $Values.Keys) {
+        $state | Add-Member -NotePropertyName $key -NotePropertyValue $Values[$key] -Force
+    }
+    Write-PPEDriveText $script:PPE_EmailStateName ($state | ConvertTo-Json -Depth 5)
+}
+
+# Já enviado hoje por outro PC: alinha o registo local para não voltar a tentar
+function Test-PPEAlreadySent($State, [string]$Slot, [string]$Day, [string]$StateKey) {
+    if ($State.$StateKey -ne $Day) { return $false }
+    Set-PPEStateValue $StateKey $Day
+    Write-PPELog "Email $Slot já enviado hoje pelo $($State.($StateKey + 'By'))"
+    return $true
+}
+
+# Reserva o envio deste slot para este PC. $false = fica para outro PC.
+function Request-PPEEmailSlot([string]$Slot, [string]$Day, [string]$StateKey) {
+    $me = Get-PPEInstallId
+    $reservaKey = "reserva$Slot"
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+
+    $state = Get-PPESharedEmailState
+    if (Test-PPEAlreadySent $state $Slot $Day $StateKey) { return $false }
+
+    # Outro PC está a tratar deste email neste momento
+    $r = $state.$reservaKey
+    if ($r -and $r.dia -eq $Day -and $r.id -ne $me.Id) {
+        $idade = ([DateTime]::UtcNow - [DateTime]::Parse([string]$r.as, $script:INV, $styles)).TotalMinutes
+        if ([Math]::Abs($idade) -lt $script:PPE_ReservaValidadeMinutos) {
+            Write-PPELog "Email $Slot reservado pelo $($r.pc): este PC não envia"
+            return $false
+        }
+    }
+
+    Set-PPESharedEmailValues @{ $reservaKey = [pscustomobject]@{
+        dia = $Day; pc = $me.Name; id = $me.Id; as = [DateTime]::UtcNow.ToString('o') } }
+
+    # Se os dois PCs reservaram ao mesmo tempo, fica com o slot aquele cuja reserva
+    # ficou gravada em último lugar — é a que ambos leem a seguir.
+    Start-Sleep -Seconds $script:PPE_ReservaEsperaSegundos
+    $state = Get-PPESharedEmailState
+    if (Test-PPEAlreadySent $state $Slot $Day $StateKey) { return $false }
+    $r = $state.$reservaKey
+    if (-not $r -or $r.id -ne $me.Id) {
+        $quem = if ($r) { $r.pc } else { 'outro PC' }
+        Write-PPELog "Email $Slot reservado pelo ${quem}: este PC não envia"
+        return $false
+    }
+    return $true
 }
 
 try {
@@ -211,12 +266,7 @@ try {
 
     if (-not $Preview -and -not $Force) {
         if (-not (Test-PPESlotDue $alerts (Get-PPEAlertSlot $alerts 'Email' $Slot) $data $config $now)) { return }
-        $shared = Get-PPESharedEmailState
-        if ($shared.$stateKey -eq $todayKey) {
-            Set-PPEStateValue $stateKey $todayKey
-            Write-PPELog "Email $Slot já enviado hoje por $($shared.($stateKey + 'By'))"
-            return
-        }
+        if (-not (Request-PPEEmailSlot $Slot $todayKey $stateKey)) { return }
     }
 
     $nextPlan = $null
@@ -239,7 +289,10 @@ try {
     # Um envio manual (-Force) também conta como o email do dia: evita que o disparo
     # automático/nova tentativa volte a enviar. Para testar sem afetar, usar -Preview.
     Set-PPEStateValue $stateKey $todayKey
-    try { Set-PPESharedEmailState $stateKey $todayKey }
+    $marca = @{}
+    $marca[$stateKey] = $todayKey
+    $marca[$stateKey + 'By'] = (Get-PPEInstallId).Name
+    try { Set-PPESharedEmailValues $marca }
     catch { Write-PPELog "Aviso: não foi possível registar o envio no Drive: $($_.Exception.Message)" }
     Write-PPELog "Email $Slot enviado: $($mail.Subject)"
 }

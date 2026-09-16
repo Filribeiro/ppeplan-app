@@ -66,6 +66,17 @@ function Set-PPEStateValue([string]$Key, $Value) {
     $state | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:PPE_StateDir 'state.json') -Encoding UTF8
 }
 
+# Como este PC se identifica no registo partilhado da conta. O nome do PC pode
+# repetir-se, por isso junta-se um id gerado na primeira utilização.
+function Get-PPEInstallId {
+    $id = [string](Get-PPEState).installId
+    if (-not $id) {
+        $id = [Guid]::NewGuid().ToString('N').Substring(0, 8)
+        Set-PPEStateValue 'installId' $id
+    }
+    [pscustomobject]@{ Id = $id; Name = $env:COMPUTERNAME }
+}
+
 function ConvertTo-TodayTime([string]$HHmm) {
     [DateTime]::ParseExact($HHmm, 'HH:mm', $script:INV)
 }

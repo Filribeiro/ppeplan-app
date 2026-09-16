@@ -196,12 +196,29 @@ function Find-PPEDriveFile([string]$Name) {
     return @($r.files) | Select-Object -First 1
 }
 
+# Ficheiros de controlo da conta (ex.: registo de envios): manda o mais antigo.
+# Se dois PCs o criaram ao mesmo tempo, os restantes vão para o lixo — senão
+# cada PC ficava a ler o seu e o registo deixava de ser partilhado.
+function Find-PPEDriveStateFile([string]$Name) {
+    $q = [Uri]::EscapeDataString("name='$Name' and trashed=false")
+    $r = Invoke-PPEGoogleApi "https://www.googleapis.com/drive/v3/files?q=$q&orderBy=createdTime&fields=files(id,name,createdTime)"
+    $files = @($r.files)
+    if ($files.Count -eq 0) { return $null }
+    foreach ($extra in @($files | Select-Object -Skip 1)) {
+        try {
+            Invoke-PPEGoogleApi "https://www.googleapis.com/drive/v3/files/$($extra.id)" -Method Patch -Json '{"trashed":true}' | Out-Null
+            Write-PPELog "$Name duplicado no Drive movido para o lixo ($($extra.id))"
+        } catch { }
+    }
+    return $files[0]
+}
+
 function Read-PPEDriveText([string]$FileId) {
     Invoke-PPEGoogleApi "https://www.googleapis.com/drive/v3/files/$($FileId)?alt=media" -Raw
 }
 
 function Write-PPEDriveText([string]$Name, [string]$Text) {
-    $file = Find-PPEDriveFile $Name
+    $file = Find-PPEDriveStateFile $Name
     if (-not $file) {
         $file = Invoke-PPEGoogleApi 'https://www.googleapis.com/drive/v3/files' -Method Post -Json (@{ name = $Name; mimeType = 'application/json' } | ConvertTo-Json)
     }
