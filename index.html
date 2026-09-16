@@ -328,10 +328,54 @@
   /* Barra usa top/bottom para preencher dinamicamente a altura do timeline */
   #sub-gantt .gantt-bar { top: 4px; bottom: 4px; height: auto; border-radius: 4px; cursor: pointer; overflow: visible; padding: 0 5px; display: flex; align-items: center; color: #fff; font-size: 10.5px; font-weight: 600; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.55), 0 0 3px rgba(0,0,0,0.4); box-shadow: none; }
   #sub-gantt .sub-bar-label { display: none; }
+  /* Título multi-linha: o nome da subtarefa aparece sempre por inteiro */
+  #sub-gantt .si-title { resize: none; overflow: hidden; font-family: inherit; line-height: 1.3; min-height: 24px; align-self: center; }
+
+  /* ===== Subtarefas em cartões (usado em mobile, onde a Gantt não cabe) ===== */
+  .sub-cards { display: none; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .sc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; box-shadow: var(--shadow-sm); }
+  .sc-card.completed { opacity: 0.55; }
+  .sc-card.completed .sc-title { text-decoration: line-through; color: var(--text-muted); }
+  .sc-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .sc-card.draft { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
+  .sc-top { display: grid; grid-template-columns: 22px 1fr 30px; gap: 8px; align-items: start; }
+  .sc-left { display: flex; flex-direction: column; align-items: center; gap: 5px; padding-top: 3px; }
+  .sc-num { color: var(--text-soft); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sc-check { width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+  /* Título: textarea que cresce — mostra o nome todo, sem cortes */
+  .sc-title { width: 100%; min-width: 0; box-sizing: border-box; resize: none; overflow: hidden; font-family: inherit;
+    font-size: 15px; font-weight: 500; line-height: 1.35; color: var(--text); padding: 7px 9px;
+    background: var(--surface-warm); border: 1px solid var(--border); border-radius: 8px; outline: none; }
+  .sc-title:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .sc-title::placeholder { color: var(--text-soft); font-weight: 400; }
+  .sc-del { width: 30px; height: 34px; padding: 0; display: grid; place-items: center; background: transparent; border: none; border-radius: 8px; color: var(--text-soft); font-size: 15px; cursor: pointer; }
+  .sc-del:active { background: var(--danger-soft); color: var(--danger); }
+  .sc-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; padding-left: 30px; }
+  .sc-bottom .si-hours { padding: 5px 8px; font-size: 12px; }
+  .sc-bottom .si-hours input { width: 38px; font-size: 13px; }
+  .sc-bottom .si-assignee { display: block; width: 62px; padding: 6px; font-size: 12px; }
+  .sc-dates { font-size: 11px; color: var(--text-muted); background: var(--surface-warm); border-radius: var(--radius-pill); padding: 4px 8px; white-space: nowrap; }
+  .sc-bottom .si-actions { margin-left: auto; gap: 2px; }
+  .sc-bottom .si-actions button { width: 32px; height: 32px; font-size: 14px; }
+  .sc-confirm { width: 100%; margin-top: 9px; padding: 11px; background: var(--accent); color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .sc-confirm:disabled { background: var(--border-strong); cursor: default; }
+  .sc-empty { padding: 14px; background: var(--surface-warm); border-radius: 10px; color: var(--text-soft); font-size: 13px; text-align: center; }
+  /* Barra fixa em baixo com a ação de concluir a edição */
+  .sub-savebar { display: none; position: sticky; bottom: 0; z-index: 5; gap: 8px; padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg) 70%, transparent); }
+  .sub-savebar button { flex: 1; padding: 13px; font-size: 15px; font-weight: 600; border-radius: 10px; border: none; cursor: pointer; }
+  .sub-savebar .save { background: var(--accent); color: #fff; }
+  /* Dentro das subtarefas o FAB "nova atividade" não se aplica e taparia a barra */
+  body.drilldown .fab { display: none !important; }
 
   @media (max-width: 768px) {
     #sub-gantt .sub-task-name { grid-template-columns: 20px 16px 1fr auto auto; gap: 3px; padding: 3px 6px; }
     #sub-gantt .sub-task-name .si-assignee { display: none; }
+    /* A Gantt (.gantt-scroll) está escondida em mobile — a edição passa para os cartões */
+    .sub-cards { display: flex; }
+    .sub-savebar { display: flex; }
+    #sub-gantt-wrap { display: none; }
+    #sub-add-row { padding: 12px; font-size: 14px; }
   }
 
   @media (max-width: 768px) {
@@ -573,8 +617,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.7";
-const APP_PUBLISHED = "16/09/2026 00:32";
+const APP_VERSION = "2.8";
+const APP_PUBLISHED = "16/09/2026 09:29";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -862,6 +906,7 @@ function clearManualOrder() { state.tasks.forEach(t=>t.manualOrder=null); schedu
 function render() {
   computeSchedule(state.tasks, state.settings);
   const c = $("#content");
+  document.body.classList.toggle("drilldown", !!state.drilldownTaskId);
   if (state.drilldownTaskId) {
     c.innerHTML = renderSubtasksView();
     bindSubtasksViewEvents();
@@ -885,6 +930,7 @@ function renderSubtasksView() {
       </div>
       <span class="priority-badge priority-${t.manualPriority}">P${t.manualPriority}</span>
     </div>
+    <div class="sub-cards" id="sub-cards"></div>
     <button class="add-subtask-btn" id="sub-add-row" style="margin-bottom:10px">+ Nova subtarefa</button>
     <div id="sub-detail-wrap" style="display:none;margin-top:16px;padding:14px;background:var(--surface-warm);border-radius:10px;position:relative">
       <button type="button" id="sub-detail-close" title="Fechar" style="position:absolute;top:8px;right:8px;width:28px;height:28px;border:none;background:var(--surface);border-radius:50%;cursor:pointer;font-size:14px;color:var(--text-muted);box-shadow:var(--shadow-sm)">✕</button>
@@ -897,6 +943,7 @@ function renderSubtasksView() {
       <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Cronograma</div>
       <div id="sub-gantt"></div>
     </div>
+    <div class="sub-savebar"><button type="button" class="save" id="sub-save">✓ Guardar e voltar</button></div>
   `;
 }
 function openDepPopover(sid, anchorEl) {
@@ -928,7 +975,8 @@ function closeDepPopover() { const p = document.getElementById("dep-popover"); i
 
 function bindSubtasksViewEvents() {
   $("#sub-back").addEventListener("click", closeSubtasksView);
-  $("#sub-add-row").addEventListener("click", () => { state.subList.push(newSubtask()); state.subActiveId = state.subList[state.subList.length-1].id; renderSubTable(); renderSubGantt(); renderSubDetail(); });
+  $("#sub-save")?.addEventListener("click", closeSubtasksView);
+  $("#sub-add-row").addEventListener("click", addNewSubtask);
   $("#sub-detail-add-att").addEventListener("click", () => { if (state.subActiveId) { state.attachTarget = "subtask-detail"; $("#attachment-file").click(); } });
   $("#sub-detail-close").addEventListener("click", () => { state.subActiveId = null; renderSubDetail(); renderSubTable(); });
 }
@@ -1092,6 +1140,7 @@ state.attachTarget = "task"; // "task" | "subtask:<sid>" | "task-edit"
 state.subTaskId = null;       // id da tarefa parent cujas subtarefas estamos a editar
 state.subList = [];           // cópia editável das subtarefas
 state.subActiveId = null;     // qual subtarefa está com detalhes (notas/anexos) abertos
+state.subDraftId = null;      // subtarefa acabada de criar, à espera de confirmação (botão ✓)
 
 function compressImage(file, maxWidth = 1400, maxKB = 600) {
   return new Promise((resolve, reject) => {
@@ -1148,7 +1197,43 @@ function openSubtasksView(taskId) {
   state.subTaskId = taskId;
   state.subList = JSON.parse(JSON.stringify(t.subtasks || []));
   state.subActiveId = null;
+  state.subDraftId = null;
   render();
+}
+// Cria uma subtarefa em modo rascunho: fica visível, focada e com botão ✓ para confirmar
+function addNewSubtask() {
+  // Um rascunho anterior sem título fica pelo caminho — remove-o antes de criar outro
+  if (state.subDraftId) {
+    const prev = state.subList.find(s => s.id === state.subDraftId);
+    if (prev && !(prev.title || "").trim()) state.subList = state.subList.filter(s => s.id !== prev.id);
+  }
+  const st = newSubtask();
+  state.subList.push(st);
+  state.subDraftId = st.id;
+  state.subActiveId = null;
+  renderSubGantt(); renderSubDetail();
+  const el = subTitleEl(st.id);
+  if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => el.focus(), 80); }
+}
+// Campo de título visível (cartão em mobile, linha da Gantt em desktop)
+function subTitleEl(sid) {
+  const cand = [$(`.sc-title[data-sid="${sid}"]`), $(`.st-title[data-sid="${sid}"]`)].filter(Boolean);
+  return cand.find(el => el.offsetParent !== null) || cand[0] || null;
+}
+function confirmDraftSubtask(sid) {
+  const st = state.subList.find(s => s.id === sid);
+  if (!st || !(st.title || "").trim()) { toast("Escreve o título da subtarefa", "error"); subTitleEl(sid)?.focus(); return; }
+  state.subDraftId = null;
+  renderSubGantt();
+  toast("Subtarefa adicionada");
+}
+function removeSubtask(sid, skipConfirm) {
+  if (!skipConfirm && !confirm("Eliminar subtarefa?")) return;
+  state.subList = state.subList.filter(s => s.id !== sid);
+  if (state.subActiveId === sid) state.subActiveId = null;
+  if (state.subDraftId === sid) state.subDraftId = null;
+  state.subList.forEach(s => { if (s.dependsOn) s.dependsOn = s.dependsOn.filter(x => x !== sid); });
+  renderSubGantt(); renderSubDetail();
 }
 function closeSubtasksView() {
   if (state.subTaskId) {
@@ -1159,6 +1244,7 @@ function closeSubtasksView() {
   state.subTaskId = null;
   state.subList = [];
   state.subActiveId = null;
+  state.subDraftId = null;
   render();
 }
 function subSummary() {
@@ -1316,9 +1402,9 @@ function renderSubGantt() {
   const inner = $("#sub-gantt");
   const list = state.subList || [];
   const t = state.tasks.find(x=>x.id===state.subTaskId);
-  if (!t) { inner.innerHTML = ""; return; }
+  if (!t) { inner.innerHTML = ""; renderSubCards(); return; }
   $("#sub-modal-summary").textContent = subSummary();
-  if (list.length === 0) { inner.innerHTML = `<div style="color:var(--text-soft);font-size:12px;padding:10px;background:var(--surface-warm);border-radius:8px">Sem subtarefas. Clica em "+ Nova subtarefa" para começar.</div>`; return; }
+  if (list.length === 0) { inner.innerHTML = `<div style="color:var(--text-soft);font-size:12px;padding:10px;background:var(--surface-warm);border-radius:8px">Sem subtarefas. Clica em "+ Nova subtarefa" para começar.</div>`; renderSubCards(); return; }
   const parentStart = t.scheduledStart ? new Date(t.scheduledStart) : today0();
   computeSubSchedule(list, parentStart, state.settings);
 
@@ -1328,7 +1414,9 @@ function renderSubGantt() {
   const totalDays = Math.max(7, dayDiff(maxDate, minDate));
   const today = today0();
 
-  const TASK_COL = window.innerWidth <= 768 ? 230 : 420;
+  // Coluna da subtarefa adaptável: acompanha o título mais longo para o nome aparecer todo
+  const longest = list.reduce((m, s) => Math.max(m, (s.title || "").length), 0);
+  const TASK_COL = window.innerWidth <= 768 ? 230 : Math.round(Math.max(400, Math.min(560, 250 + longest * 7.4)));
   const containerW = (inner.clientWidth || $("#content").clientWidth - 40 || 800);
   const visTimeline = Math.max(280, containerW - TASK_COL);
   const dayWidth = Math.max(20, Math.floor(visTimeline / Math.min(totalDays, 28)));
@@ -1382,10 +1470,11 @@ function renderSubGantt() {
       <div class="gantt-task-name sub-task-name">
         <div class="sub-num">#${idx+1}</div>
         <input type="checkbox" class="si-check st-check" data-sid="${s.id}" ${s.status==='completed'?'checked':''} />
-        <input type="text" class="si-title st-title" data-sid="${s.id}" value="${escapeHtml(s.title)}" placeholder="Subtarefa..." />
+        <textarea class="si-title st-title" data-sid="${s.id}" rows="1" placeholder="Título da subtarefa..." title="${escapeHtml(s.title)}">${escapeHtml(s.title)}</textarea>
         <div class="si-hours"><input type="number" class="st-hours" data-sid="${s.id}" value="${s.estimatedHours}" min="1" step="0.5" />h</div>
         <input type="text" class="si-assignee st-assignee" data-sid="${s.id}" value="${escapeHtml(s.assignee||"")}" maxlength="6" placeholder="—" ${assigneeStyle} />
         <div class="si-actions">
+          ${state.subDraftId===s.id ? `<button data-act="ok" data-sid="${s.id}" class="has-content" title="Guardar subtarefa">✓</button>` : ''}
           <button data-act="dep" data-sid="${s.id}" class="${depCount>0?'has-content':''}" title="Dependências">↪${depCount>0?`<span class="badge-count">${depCount}</span>`:''}</button>
           <button data-act="notes" data-sid="${s.id}" class="${hasNotes?'has-content':''}" title="Notas">📝</button>
           <button data-act="att" data-sid="${s.id}" class="${attCount>0?'has-content':''}" title="Anexos">📎${attCount>0?`<span class="badge-count">${attCount}</span>`:''}</button>
@@ -1405,9 +1494,19 @@ function renderSubGantt() {
   inner.querySelectorAll(".st-check").forEach(el => el.addEventListener("change", () => {
     const st = state.subList.find(s=>s.id===el.dataset.sid); if (st) { st.status = el.checked?"completed":"pending"; st.completedAt = el.checked?new Date().toISOString():null; renderSubGantt(); }
   }));
-  inner.querySelectorAll(".st-title").forEach(el => el.addEventListener("input", () => {
-    const st = state.subList.find(s=>s.id===el.dataset.sid); if (st) { st.title = el.value; $("#sub-modal-summary").textContent = subSummary(); }
-  }));
+  inner.querySelectorAll(".st-title").forEach(el => {
+    autoGrow(el);
+    el.addEventListener("input", () => {
+      autoGrow(el);
+      const st = state.subList.find(s=>s.id===el.dataset.sid); if (st) { st.title = el.value; $("#sub-modal-summary").textContent = subSummary(); }
+    });
+    el.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      e.preventDefault(); el.blur();
+      if (state.subDraftId === el.dataset.sid) confirmDraftSubtask(el.dataset.sid);
+    });
+  });
+  inner.querySelectorAll("[data-act='ok']").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); confirmDraftSubtask(el.dataset.sid); }));
   inner.querySelectorAll(".st-hours").forEach(el => {
     el.addEventListener("input", () => { const st = state.subList.find(s=>s.id===el.dataset.sid); if (st) { st.estimatedHours = parseFloat(el.value)||0; $("#sub-modal-summary").textContent = subSummary(); renderSubGantt(); }});
     el.addEventListener("blur", () => { const st = state.subList.find(s=>s.id===el.dataset.sid); if (st && (st.estimatedHours < 1 || isNaN(st.estimatedHours))) { st.estimatedHours = 1; renderSubGantt(); $("#sub-modal-summary").textContent = subSummary(); }});
@@ -1420,10 +1519,7 @@ function renderSubGantt() {
   inner.querySelectorAll("[data-act='att']").forEach(el => el.addEventListener("click", (e) => { e.stopPropagation(); state.subActiveId = el.dataset.sid; renderSubDetail(); renderSubGantt(); }));
   inner.querySelectorAll("[data-act='del']").forEach(el => el.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!confirm("Eliminar subtarefa?")) return;
-    state.subList = state.subList.filter(s=>s.id!==el.dataset.sid);
-    if (state.subActiveId === el.dataset.sid) state.subActiveId = null;
-    renderSubGantt(); renderSubDetail();
+    removeSubtask(el.dataset.sid, state.subDraftId === el.dataset.sid && !(state.subList.find(s=>s.id===el.dataset.sid)?.title||"").trim());
   }));
   // Duplo clique numa barra abre o detalhe (notas + anexos)
   inner.querySelectorAll(".gantt-bar[data-sid]").forEach(el => el.addEventListener("dblclick", () => { state.subActiveId = el.dataset.sid; renderSubDetail(); renderSubGantt(); }));
@@ -1431,6 +1527,101 @@ function renderSubGantt() {
   inner.querySelectorAll(".sub-row").forEach(row => row.addEventListener("dblclick", (e) => {
     if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
     state.subActiveId = row.dataset.sid; renderSubDetail(); renderSubGantt();
+  }));
+
+  // Mantém os cartões (mobile) sincronizados com qualquer alteração na Gantt
+  renderSubCards();
+}
+
+// Ajusta a altura do textarea ao conteúdo (título completo sempre visível)
+function autoGrow(el) { if (el.offsetParent === null) return; el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; }
+
+// Ao mudar a largura (rotação/redimensionar), a vista alterna entre cartões e Gantt
+let subResizeTimer = null;
+window.addEventListener("resize", () => {
+  if (!state.drilldownTaskId) return;
+  clearTimeout(subResizeTimer);
+  subResizeTimer = setTimeout(() => { if (state.drilldownTaskId) renderSubGantt(); }, 150);
+});
+
+// Lista de subtarefas em cartões — UI principal em mobile, onde a Gantt não cabe no ecrã
+function renderSubCards() {
+  const wrap = $("#sub-cards");
+  if (!wrap) return;
+  const list = state.subList || [];
+  const t = state.tasks.find(x => x.id === state.subTaskId);
+  if (!t) { wrap.innerHTML = ""; return; }
+  if (list.length === 0) { wrap.innerHTML = `<div class="sc-empty">Ainda não há subtarefas.<br>Toca em <b>+ Nova subtarefa</b> para criar a primeira.</div>`; return; }
+
+  computeSubSchedule(list, t.scheduledStart ? new Date(t.scheduledStart) : today0(), state.settings);
+
+  wrap.innerHTML = list.map((s, idx) => {
+    const ac = assigneeColor(s.assignee);
+    const hasNotes = (s.description || "").trim().length > 0;
+    const attCount = (s.attachments || []).length;
+    const depCount = (s.dependsOn || []).length;
+    const isDraft = state.subDraftId === s.id;
+    const assigneeStyle = ac ? `style="color:${ac.text};background:${ac.bg};border-color:${ac.solid}"` : '';
+    const dates = s.scheduledStart ? `<span class="sc-dates">📅 ${fmtDate(s.scheduledStart)} → ${fmtDate(s.scheduledEnd)}</span>` : '';
+    return `<div class="sc-card ${s.status==='completed'?'completed':''} ${state.subActiveId===s.id?'active':''} ${isDraft?'draft':''}" data-sid="${s.id}">
+      <div class="sc-top">
+        <div class="sc-left">
+          <div class="sc-num">#${idx+1}</div>
+          <input type="checkbox" class="sc-check st-check" data-sid="${s.id}" ${s.status==='completed'?'checked':''} title="Concluída" />
+        </div>
+        <textarea class="sc-title st-title" data-sid="${s.id}" rows="1" placeholder="Título da subtarefa...">${escapeHtml(s.title)}</textarea>
+        <button type="button" class="sc-del" data-act="del" data-sid="${s.id}" title="Eliminar">✕</button>
+      </div>
+      <div class="sc-bottom">
+        <div class="si-hours"><input type="number" class="st-hours" data-sid="${s.id}" value="${s.estimatedHours}" min="1" step="0.5" />h</div>
+        <input type="text" class="si-assignee st-assignee" data-sid="${s.id}" value="${escapeHtml(s.assignee||"")}" maxlength="6" placeholder="Quem?" ${assigneeStyle} />
+        ${dates}
+        <div class="si-actions">
+          <button type="button" data-act="dep" data-sid="${s.id}" class="${depCount>0?'has-content':''}" title="Dependências">↪${depCount>0?`<span class="badge-count">${depCount}</span>`:''}</button>
+          <button type="button" data-act="notes" data-sid="${s.id}" class="${hasNotes?'has-content':''}" title="Notas">📝</button>
+          <button type="button" data-act="att" data-sid="${s.id}" class="${attCount>0?'has-content':''}" title="Anexos">📎${attCount>0?`<span class="badge-count">${attCount}</span>`:''}</button>
+        </div>
+      </div>
+      ${isDraft ? `<button type="button" class="sc-confirm" data-act="ok" data-sid="${s.id}" ${(s.title||"").trim()?'':'disabled'}>✓ Adicionar subtarefa</button>` : ''}
+    </div>`;
+  }).join("");
+
+  wrap.querySelectorAll(".sc-title").forEach(el => {
+    autoGrow(el);
+    el.addEventListener("input", () => {
+      const st = state.subList.find(s => s.id === el.dataset.sid);
+      autoGrow(el);
+      if (!st) return;
+      st.title = el.value;
+      $("#sub-modal-summary").textContent = subSummary();
+      const ok = wrap.querySelector(`.sc-confirm[data-sid="${el.dataset.sid}"]`);
+      if (ok) ok.disabled = !el.value.trim();
+    });
+    // Enter confirma em vez de partir a linha
+    el.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      e.preventDefault(); el.blur();
+      if (state.subDraftId === el.dataset.sid) confirmDraftSubtask(el.dataset.sid);
+    });
+  });
+  wrap.querySelectorAll(".sc-check").forEach(el => el.addEventListener("change", () => {
+    const st = state.subList.find(s => s.id === el.dataset.sid);
+    if (st) { st.status = el.checked ? "completed" : "pending"; st.completedAt = el.checked ? new Date().toISOString() : null; renderSubGantt(); }
+  }));
+  wrap.querySelectorAll(".st-hours").forEach(el => {
+    el.addEventListener("input", () => { const st = state.subList.find(s => s.id === el.dataset.sid); if (st) { st.estimatedHours = parseFloat(el.value) || 0; $("#sub-modal-summary").textContent = subSummary(); } });
+    el.addEventListener("blur", () => { const st = state.subList.find(s => s.id === el.dataset.sid); if (st) { if (st.estimatedHours < 1 || isNaN(st.estimatedHours)) st.estimatedHours = 1; renderSubGantt(); } });
+  });
+  wrap.querySelectorAll(".st-assignee").forEach(el => el.addEventListener("blur", () => {
+    const st = state.subList.find(s => s.id === el.dataset.sid); if (st) { st.assignee = el.value.trim().toUpperCase() || null; renderSubGantt(); }
+  }));
+  wrap.querySelectorAll("[data-act='ok']").forEach(el => el.addEventListener("click", () => confirmDraftSubtask(el.dataset.sid)));
+  wrap.querySelectorAll("[data-act='dep']").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); openDepPopover(el.dataset.sid, el); }));
+  wrap.querySelectorAll("[data-act='notes']").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); state.subActiveId = el.dataset.sid; renderSubDetail(); renderSubGantt(); $("#sub-detail-notes")?.focus(); }));
+  wrap.querySelectorAll("[data-act='att']").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); state.subActiveId = el.dataset.sid; renderSubDetail(); renderSubGantt(); $("#sub-detail-wrap")?.scrollIntoView({ block: "center", behavior: "smooth" }); }));
+  wrap.querySelectorAll("[data-act='del']").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    removeSubtask(el.dataset.sid, state.subDraftId === el.dataset.sid && !(state.subList.find(s => s.id === el.dataset.sid)?.title || "").trim());
   }));
 }
 
@@ -1462,7 +1653,7 @@ function init() {
     if (state.drilldownTaskId && state.subTaskId) {
       const cleaned = state.subList.filter(s => s.title && s.title.trim() !== "");
       updateTask(state.subTaskId, { subtasks: cleaned });
-      state.drilldownTaskId = null; state.subTaskId = null; state.subList = []; state.subActiveId = null;
+      state.drilldownTaskId = null; state.subTaskId = null; state.subList = []; state.subActiveId = null; state.subDraftId = null;
     }
     $$("#tabs .tab").forEach(x=>x.classList.remove("active")); t.classList.add("active"); state.view=t.dataset.view; render();
   }));

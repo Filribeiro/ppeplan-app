@@ -1,15 +1,15 @@
 {
-    "published":  "2026-09-16 00:32",
-    "commit":  "592a2c0",
+    "published":  "2026-09-16 09:29",
+    "commit":  "3f35e33",
     "app":  {
-                "build":  "80F827367747",
-                "version":  "2.7",
-                "published":  "16/09/2026 00:32"
+                "build":  "EE98AA264202",
+                "version":  "2.8",
+                "published":  "16/09/2026 09:29"
             },
     "files":  {
-                  "PPEPlan-Notify.ps1":  "D551C5E111BDEE5DEDA3F6596C2ADE64850BE2555EB6B833FE6C2ACBD07E9688",
                   "PPEPlan-Common.ps1":  "00C65B491AC43CE89E7E97A6B29E5A90FED687D9B7D7729C4DA299B7FFB29EBD",
                   "PPEPlan-Email.ps1":  "B75F3ED72CE57DCDF77F43D93E6682FD4DF51D8EFF4A3C374DE6A4067F027E7B",
+                  "PPEPlan-Notify.ps1":  "D551C5E111BDEE5DEDA3F6596C2ADE64850BE2555EB6B833FE6C2ACBD07E9688",
                   "PPEPlan-Google.ps1":  "41F86792F92026E0BC6BE384F3AF75B4C4D055B1AA21835B05C4B7EB2B728477",
                   "config.default.json":  "325DF0EE740DC598BFDA7613935CFB622745D57A91CEF907C35AFD53C1C4C820",
                   "Configurar.ps1":  "A2A9B303A2145CC2EE2493253CC223E02E310655AFCDBD6EB9BEF12D3B790737",
