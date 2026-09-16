@@ -617,8 +617,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.8";
-const APP_PUBLISHED = "16/09/2026 09:29";
+const APP_VERSION = "2.9";
+const APP_PUBLISHED = "16/09/2026 09:39";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -1536,12 +1536,20 @@ function renderSubGantt() {
 // Ajusta a altura do textarea ao conteúdo (título completo sempre visível)
 function autoGrow(el) { if (el.offsetParent === null) return; el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; }
 
-// Ao mudar a largura (rotação/redimensionar), a vista alterna entre cartões e Gantt
-let subResizeTimer = null;
+// Ao mudar a largura (rotação/redimensionar), a vista alterna entre cartões e Gantt.
+// Só a LARGURA conta: em mobile o teclado a abrir muda a altura e redesenhar aí
+// destruiria o campo que está a ser escrito.
+let subResizeTimer = null, subResizeWidth = window.innerWidth;
 window.addEventListener("resize", () => {
-  if (!state.drilldownTaskId) return;
+  if (!state.drilldownTaskId || window.innerWidth === subResizeWidth) return;
+  subResizeWidth = window.innerWidth;
   clearTimeout(subResizeTimer);
-  subResizeTimer = setTimeout(() => { if (state.drilldownTaskId) renderSubGantt(); }, 150);
+  subResizeTimer = setTimeout(() => {
+    if (!state.drilldownTaskId) return;
+    const a = document.activeElement;
+    if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return; // não interromper quem está a escrever
+    renderSubGantt();
+  }, 200);
 });
 
 // Lista de subtarefas em cartões — UI principal em mobile, onde a Gantt não cabe no ecrã
@@ -1552,6 +1560,14 @@ function renderSubCards() {
   const t = state.tasks.find(x => x.id === state.subTaskId);
   if (!t) { wrap.innerHTML = ""; return; }
   if (list.length === 0) { wrap.innerHTML = `<div class="sc-empty">Ainda não há subtarefas.<br>Toca em <b>+ Nova subtarefa</b> para criar a primeira.</div>`; return; }
+
+  // Quem estiver a escrever não pode perder o campo (nem o cursor) se a lista for redesenhada
+  const act = document.activeElement;
+  let keep = null;
+  if (act && act.dataset && act.dataset.sid && wrap.contains(act)) {
+    const cls = ["sc-title", "st-hours", "st-assignee"].find(c => act.classList.contains(c));
+    if (cls) { keep = { sid: act.dataset.sid, cls: cls }; try { keep.start = act.selectionStart; keep.end = act.selectionEnd; } catch (e) {} }
+  }
 
   computeSubSchedule(list, t.scheduledStart ? new Date(t.scheduledStart) : today0(), state.settings);
 
@@ -1608,13 +1624,25 @@ function renderSubCards() {
     const st = state.subList.find(s => s.id === el.dataset.sid);
     if (st) { st.status = el.checked ? "completed" : "pending"; st.completedAt = el.checked ? new Date().toISOString() : null; renderSubGantt(); }
   }));
+  // Nos campos que reagem no blur, só redesenha se o valor mudou mesmo: caso contrário
+  // tocar noutro campo destruía-o antes de receber o toque.
   wrap.querySelectorAll(".st-hours").forEach(el => {
+    el.addEventListener("focus", () => { el.dataset.prev = el.value; });
     el.addEventListener("input", () => { const st = state.subList.find(s => s.id === el.dataset.sid); if (st) { st.estimatedHours = parseFloat(el.value) || 0; $("#sub-modal-summary").textContent = subSummary(); } });
-    el.addEventListener("blur", () => { const st = state.subList.find(s => s.id === el.dataset.sid); if (st) { if (st.estimatedHours < 1 || isNaN(st.estimatedHours)) st.estimatedHours = 1; renderSubGantt(); } });
+    el.addEventListener("blur", () => {
+      const st = state.subList.find(s => s.id === el.dataset.sid); if (!st) return;
+      if (!(st.estimatedHours >= 1)) { st.estimatedHours = 1; el.value = 1; }
+      if (el.dataset.prev !== String(st.estimatedHours)) renderSubGantt();
+    });
   });
-  wrap.querySelectorAll(".st-assignee").forEach(el => el.addEventListener("blur", () => {
-    const st = state.subList.find(s => s.id === el.dataset.sid); if (st) { st.assignee = el.value.trim().toUpperCase() || null; renderSubGantt(); }
-  }));
+  wrap.querySelectorAll(".st-assignee").forEach(el => {
+    el.addEventListener("focus", () => { el.dataset.prev = el.value; });
+    el.addEventListener("blur", () => {
+      const st = state.subList.find(s => s.id === el.dataset.sid); if (!st) return;
+      st.assignee = el.value.trim().toUpperCase() || null;
+      if ((el.dataset.prev || "").trim().toUpperCase() !== (st.assignee || "")) renderSubGantt();
+    });
+  });
   wrap.querySelectorAll("[data-act='ok']").forEach(el => el.addEventListener("click", () => confirmDraftSubtask(el.dataset.sid)));
   wrap.querySelectorAll("[data-act='dep']").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); openDepPopover(el.dataset.sid, el); }));
   wrap.querySelectorAll("[data-act='notes']").forEach(el => el.addEventListener("click", e => { e.stopPropagation(); state.subActiveId = el.dataset.sid; renderSubDetail(); renderSubGantt(); $("#sub-detail-notes")?.focus(); }));
@@ -1623,6 +1651,11 @@ function renderSubCards() {
     e.stopPropagation();
     removeSubtask(el.dataset.sid, state.subDraftId === el.dataset.sid && !(state.subList.find(s => s.id === el.dataset.sid)?.title || "").trim());
   }));
+
+  if (keep) {
+    const el = wrap.querySelector(`.${keep.cls}[data-sid="${keep.sid}"]`);
+    if (el) { el.focus(); if (keep.start != null) { try { el.setSelectionRange(keep.start, keep.end); } catch (e) {} } }
+  }
 }
 
 // Legacy stubs (old API)
