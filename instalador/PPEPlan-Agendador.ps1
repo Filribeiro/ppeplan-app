@@ -20,9 +20,12 @@ try {
     try { Update-PPEPcStatus $config } catch { }
     $data = Read-PPEData $config -Quiet
 
-    # Notificação de teste pedida na app: só lê o ficheiro (e compila o push) quando mudou
+    $alerts = Get-PPEAlerts $data $config
+
+    # Notificação de teste pedida na app: só lê o ficheiro (e compila o push) quando mudou.
+    # Com os resumos enviados pela Google, é o Apps Script que trata o pedido.
     try {
-        $pf = Find-PPEDriveStateFile $script:PPE_PushFileName
+        $pf = if ($alerts.SenderGoogle) { $null } else { Find-PPEDriveStateFile $script:PPE_PushFileName }
         if ($pf -and [string]$pf.modifiedTime -ne [string](Get-PPEState).pushFileModified) {
             Set-PPEStateValue 'pushFileModified' ([string]$pf.modifiedTime)
             $pushText = Read-PPEDriveText $pf.id
@@ -33,7 +36,6 @@ try {
         }
     } catch { Write-PPELog "ERRO Push teste: $($_.Exception.Message)" }
 
-    $alerts = Get-PPEAlerts $data $config
     $now = Get-Date
     foreach ($s in $alerts.Slots) {
         if (-not (Test-PPESlotDue $alerts $s $data $config $now)) { continue }

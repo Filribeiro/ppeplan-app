@@ -229,6 +229,8 @@ function Get-PPEAlerts($Data, $Config) {
         Slots          = @($slots)
         # Desligado: os resumos da manhã/fim do dia só vão para o telemóvel
         SendEmail      = if ($a -and $null -ne $a.sendEmail) { [bool]$a.sendEmail } else { $true }
+        # "google": os resumos (email + telemóvel) saem do Apps Script (appsscript/); os PCs não enviam
+        SenderGoogle   = [bool]($a -and $a.sender -eq 'google')
         EmailTo        = if ($a -and $a.emailTo) { [string]$a.emailTo } else { '' }
         NotifyOnThisPC = [bool]$Config.notifications.enabled
     }
@@ -242,6 +244,7 @@ function Get-PPEAlertSlot($Alerts, [string]$Kind, [string]$Slot) {
 function Test-PPESlotDue($Alerts, $SlotInfo, $Data, $Config, [DateTime]$Now = (Get-Date)) {
     if (-not $SlotInfo -or -not $SlotInfo.On) { return $false }
     if ($SlotInfo.Kind -eq 'Notify' -and -not $Alerts.NotifyOnThisPC) { return $false }
+    if ($SlotInfo.Kind -eq 'Email' -and $Alerts.SenderGoogle) { return $false }
     if (-not (Test-PPEWorkingDay $Now.Date (Get-PPESettings $Data))) { return $false }
     $state = Get-PPEState
     if ($state.($SlotInfo.StateKey) -eq $Now.ToString('yyyy-MM-dd')) { return $false }
