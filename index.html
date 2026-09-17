@@ -720,8 +720,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.16";
-const APP_PUBLISHED = "17/09/2026 08:48";
+const APP_VERSION = "2.17";
+const APP_PUBLISHED = "17/09/2026 09:01";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -2355,7 +2355,7 @@ async function enablePush() {
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(vapid.publicKey) });
   upsertDevice(file, sub);
   await writePushFile(file);
-  reg.showNotification("PPEPlan — notificações ativas", { body: "Os resumos da manhã e do fim do dia vão chegar aqui.", icon: "icon-192.png", tag: "ativado" }).catch(() => {});
+  reg.showNotification("PPEPlan — notificações ativas", { body: "Os resumos da manhã e do fim do dia vão chegar aqui.", icon: "icon-192.png", badge: "badge-96.png", tag: "ativado" }).catch(() => {});
 }
 async function disablePush(deviceId) {
   const mine = localStorage.getItem(PUSH_DEVICE_KEY);

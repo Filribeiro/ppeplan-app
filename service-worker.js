@@ -5,7 +5,7 @@
 
 // Substituído pelo Publicar-App.ps1 em cada publicação com alterações à app:
 // muda os bytes deste ficheiro e a app mostra "Há uma versão nova".
-const BUILD = "078481844B7D";
+const BUILD = "1095A208AED6";
 const CACHE_NAME = "ppeplan-shell";
 const APP_SHELL = [
   "./",
@@ -13,6 +13,7 @@ const APP_SHELL = [
   "./manifest.json",
   "./favicon.png",
   "./icon-192.png",
+  "./badge-96.png",
   "./icon-512.png",
   "./icon-maskable-512.png",
   "./Logotipo%20Horizontal.png"
@@ -49,6 +50,8 @@ self.addEventListener("push", (event) => {
     tag: d.tag || "ppeplan",
     renotify: true,
     icon: "icon-192.png",
+    // Ícone pequeno (barra de estado): o Android só usa a silhueta, branca em fundo transparente
+    badge: "badge-96.png",
     lang: "pt-PT"
   }));
 });
