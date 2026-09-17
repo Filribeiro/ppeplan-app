@@ -3,24 +3,37 @@
 #  -Slot Morning  Tarefas de hoje
 #  -Slot Evening  Resumo do dia + plano do próximo dia útil
 #  (horas e ligar/desligar: Definições da app; chamado pelo PPEPlan-Agendador.ps1)
-#  -Preview  Gera o HTML em %LOCALAPPDATA%\PPEPlan\email-preview.html e abre-o (não envia)
+#  -Preview  Gera o HTML em %LOCALAPPDATA%\PPEPlan\email-preview.html e abre-o
+#            e mostra o texto da notificação do telemóvel (não envia nada)
 #  -Force    Envia mesmo que já tenha sido enviado hoje / fim de semana / fora de horas
 #            (conta como o email desse dia: o envio automático já não repete)
+#  -Canal    Com -Force: Ambos (defeito), Email ou Push (Push só testa o telemóvel
+#            e não conta como o email do dia)
 #
-#  Envia pela Gmail API com a conta Google do PC. Com vários PCs na mesma
-#  conta, o registo de envio fica no Drive (ppeplan-emails-enviados.json)
+#  Envia pela Gmail API com a conta Google do PC e, para os telemóveis com as
+#  notificações ativas na app, por Web Push (PPEPlan-Push.ps1). Com vários PCs
+#  na mesma conta, o registo de envio fica no Drive (ppeplan-emails-enviados.json)
 #  para só um deles enviar.
 # ============================================================
 param(
     [ValidateSet('Morning', 'Evening')] [string]$Slot = 'Morning',
     [switch]$Preview,
-    [switch]$Force
+    [switch]$Force,
+    [ValidateSet('Ambos', 'Email', 'Push')] [string]$Canal = 'Ambos'
 )
 
 . (Join-Path $PSScriptRoot 'PPEPlan-Common.ps1')
+# Se o push não carregar (ex.: compilação falhar), o email continua a sair
+try { . (Join-Path $PSScriptRoot 'PPEPlan-Push.ps1') }
+catch {
+    Write-PPELog "ERRO a carregar PPEPlan-Push.ps1: $($_.Exception.Message)"
+    function Send-PPEPush { throw 'PPEPlan-Push.ps1 não carregou (ver log)' }
+}
+
+$script:PPE_AgendaSemPermissao = 'Agenda não incluída: este PC ainda não tem acesso ao Calendário Google. No PC: menu Iniciar → PPEPlan → Mudar conta Google.'
 
 function New-PPEEmailHtml {
-    param($Plan, $Config, [string]$Slot = 'Morning', $NextPlan)
+    param($Plan, $Config, [string]$Slot = 'Morning', $NextPlan, $Agenda)
 
     $h = { param($s) [Net.WebUtility]::HtmlEncode([string]$s) }
     $red = '#C73943'; $text = '#1B1F2A'; $muted = '#5B6770'; $border = '#E4E7EB'; $green = '#4F7A4E'
@@ -110,21 +123,51 @@ function New-PPEEmailHtml {
         }
     }
 
+    # Eventos dos calendários escolhidos nas Definições (Get-PPEAgenda)
+    $agendaSection = {
+        param([DateTime]$day, [string]$heading)
+        if (-not $Agenda -or -not $Agenda.Configured) { return }
+        & $section $heading
+        if ($Agenda.Problem -eq 'sem-permissao') {
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px 8px;color:#6B4A10;font-size:13px`">$(& $h $script:PPE_AgendaSemPermissao)</td></tr>")
+            return
+        }
+        if ($Agenda.Events.Count -eq 0) {
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px 8px;color:$muted;font-size:14px`">Sem eventos.</td></tr>")
+        }
+        foreach ($ev in $Agenda.Events) {
+            $extra = @($ev.Where, $ev.Calendar) | Where-Object { $_ }
+            $name = if ($ev.Link) { "<a href=`"$(& $h $ev.Link)`" style=`"color:$text;text-decoration:none`">$(& $h $ev.Title)</a>" } else { & $h $ev.Title }
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px;font-size:14px`"><table role=`"presentation`" cellpadding=`"0`" cellspacing=`"0`"><tr>" +
+                "<td style=`"width:96px;vertical-align:top;font-weight:700;white-space:nowrap`">$(& $h (Format-PPEEventTime $ev $day))</td>" +
+                "<td style=`"vertical-align:top`">$name" +
+                $(if ($extra) { "<div style=`"font-size:12px;color:$muted`">$(& $h ($extra -join ' · '))</div>" } else { '' }) +
+                '</td></tr></table></td></tr>')
+        }
+        if ($Agenda.Problem) {
+            [void]$sb.Append("<tr><td style=`"padding:4px 24px;font-size:12px;color:$muted`">Agenda incompleta: $(& $h $Agenda.Problem)</td></tr>")
+        }
+    }
+
     $hoursOf = { param($p) [double](($p.MyToday | Measure-Object -Property HoursToday -Sum).Sum) }
     $tasksLabel = { param($c, $hrs) if ($c -eq 0) { 'sem tarefas' } elseif ($c -eq 1) { "1 tarefa · $(Format-PPEHours $hrs)" } else { "$c tarefas · $(Format-PPEHours $hrs)" } }
     $todayLabel = & $cap $Plan.Today.ToString("dddd, d 'de' MMMM", $script:PT)
+    $eventsLabel = ''
+    if ($Agenda -and $Agenda.Configured -and -not $Agenda.Problem -and $Agenda.Events.Count -gt 0) {
+        $eventsLabel = if ($Agenda.Events.Count -eq 1) { ' · 1 evento' } else { " · $($Agenda.Events.Count) eventos" }
+    }
 
     if ($Slot -eq 'Evening') {
         $done = @($Plan.CompletedToday)
         $nextLabel = $NextPlan.Today.ToString("dddd, d MMM", $script:PT)
         $kicker = 'PPEPlan · fim do dia'
         $headline = $todayLabel
-        $summary = "$($done.Count) concluída(s) hoje · ${nextLabel}: $(& $tasksLabel $NextPlan.MyToday.Count (& $hoursOf $NextPlan))"
-        $subject = "PPEPlan · Fim do dia $(Format-PPEDay $Plan.Today 'ddd, d MMM') · $($done.Count) concluída(s) · amanhã $(& $tasksLabel $NextPlan.MyToday.Count (& $hoursOf $NextPlan))"
+        $summary = "$($done.Count) concluída(s) hoje · ${nextLabel}: $(& $tasksLabel $NextPlan.MyToday.Count (& $hoursOf $NextPlan))$eventsLabel"
+        $subject = "PPEPlan · Fim do dia $(Format-PPEDay $Plan.Today 'ddd, d MMM') · $($done.Count) concluída(s) · amanhã $(& $tasksLabel $NextPlan.MyToday.Count (& $hoursOf $NextPlan))$eventsLabel"
     } else {
         $kicker = 'PPEPlan'
         $headline = $todayLabel
-        $summary = & $cap (& $tasksLabel $Plan.MyToday.Count (& $hoursOf $Plan))
+        $summary = (& $cap (& $tasksLabel $Plan.MyToday.Count (& $hoursOf $Plan))) + $eventsLabel
         $subject = "PPEPlan · $(Format-PPEDay $Plan.Today 'ddd, d MMM') · $summary"
     }
 
@@ -158,11 +201,13 @@ function New-PPEEmailHtml {
             [void]$sb.Append("<tr><td style=`"padding:4px 24px;font-size:12px;color:$muted`">Se já estão feitas, marca-as no PPEPlan para o plano de amanhã ficar certo.</td></tr>")
         }
 
+        & $agendaSection $NextPlan.Today ('Agenda de amanhã · ' + $nextLabel)
         & $section ('Amanhã · ' + $nextLabel)
         & $cards $NextPlan 'previstas' 'Nada agendado para o próximo dia útil.'
         & $deadlines $NextPlan
         & $delegated $NextPlan 'Delegadas com trabalho amanhã'
     } else {
+        & $agendaSection $Plan.Today 'Agenda de hoje'
         & $section 'Para hoje'
         & $cards $Plan 'hoje' 'Nada agendado para hoje.'
         & $deadlines $Plan
@@ -175,6 +220,83 @@ function New-PPEEmailHtml {
     [void]$sb.Append('</table></td></tr></table></body></html>')
 
     [pscustomobject]@{ Subject = $subject; Html = $sb.ToString() }
+}
+
+# O mesmo conteúdo do email, em texto, para a notificação do telemóvel
+# (o Android mostra o título e, ao expandir, o texto todo)
+function New-PPEPushText {
+    param($Plan, $Config, [string]$Slot = 'Morning', $NextPlan, $Agenda)
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    $hoursOf = { param($p) [double](($p.MyToday | Measure-Object -Property HoursToday -Sum).Sum) }
+    $tasksLabel = { param($p) $c = $p.MyToday.Count; if ($c -eq 0) { 'sem tarefas' } elseif ($c -eq 1) { "1 tarefa (" + (Format-PPEHours (& $hoursOf $p)) + ')' } else { "$c tarefas (" + (Format-PPEHours (& $hoursOf $p)) + ')' } }
+    $block = {
+        param([string]$heading, $items)
+        $items = @($items | Where-Object { $_ })
+        if ($items.Count -eq 0) { return }
+        if ($lines.Count -gt 0) { $lines.Add('') }
+        $lines.Add($heading)
+        foreach ($i in $items) { $lines.Add($i) }
+    }
+    $agendaLines = {
+        param([DateTime]$day, [string]$heading)
+        if (-not $Agenda -or -not $Agenda.Configured) { return }
+        if ($Agenda.Problem -eq 'sem-permissao') { & $block $heading @($script:PPE_AgendaSemPermissao); return }
+        $items = @($Agenda.Events | ForEach-Object { "$(Format-PPEEventTime $_ $day)  $($_.Title)" })
+        if ($items.Count -eq 0) { $items = @('Sem eventos') }
+        & $block $heading $items
+    }
+    $taskLines = {
+        param($p)
+        $n = 0
+        @($p.MyToday | ForEach-Object {
+            $n++
+            $dl = Get-PPEDeadlineLabel $_
+            $flag = if ($null -ne $_.DaysToDeadline -and $_.DaysToDeadline -lt 0) { ' ⚠' } else { '' }
+            "$n. $($_.Task.title) · $(Format-PPEHours $_.HoursToday) · $dl$flag"
+        })
+    }
+    $deadlineLines = {
+        param($p)
+        $ids = @($p.MyToday | ForEach-Object { $_.Task.id })
+        @($p.Ordered | Where-Object {
+            $_.IsMine -and $ids -notcontains $_.Task.id -and $null -ne $_.DaysToDeadline -and $_.DaysToDeadline -le [int]$Config.email.upcomingDays
+        } | Sort-Object DaysToDeadline | ForEach-Object { "$(Get-PPEDeadlineLabel $_) · $($_.Task.title)" })
+    }
+    $delegatedLines = {
+        param($p)
+        if (-not $Config.email.includeDelegated) { return @() }
+        @($p.Delegated | Group-Object Assignee | Sort-Object Name | ForEach-Object {
+            "$($_.Name): " + (($_.Group | ForEach-Object { $_.Task.title }) -join ', ')
+        })
+    }
+
+    if ($Plan.SavedAt -and ((Get-Date) - $Plan.SavedAt).TotalDays -gt [double]$Config.staleDataWarningDays) {
+        $lines.Add("⚠ Dados de $(Format-PPEDay $Plan.SavedAt 'd MMM') — abre o PPEPlan para sincronizar")
+    }
+
+    $events = if ($Agenda -and $Agenda.Configured -and -not $Agenda.Problem) { $Agenda.Events.Count } else { 0 }
+    $eventsLabel = if ($events -eq 1) { ' · 1 evento' } elseif ($events -gt 1) { " · $events eventos" } else { '' }
+
+    if ($Slot -eq 'Evening') {
+        $done = @($Plan.CompletedToday)
+        $title = "Fim do dia: $($done.Count) concluída(s) · amanhã $(& $tasksLabel $NextPlan)$eventsLabel"
+        & $block "✓ Concluídas hoje" @($done | ForEach-Object { "✓ $($_.title)" })
+        & $block 'Ainda em aberto hoje' @($Plan.MyToday | ForEach-Object { "• $($_.Task.title)" })
+        $nextLabel = Format-PPEDay $NextPlan.Today 'ddd, d MMM'
+        & $agendaLines $NextPlan.Today "📅 Agenda de amanhã ($nextLabel)"
+        & $block "Tarefas de amanhã" (& $taskLines $NextPlan)
+        & $block 'Prazos' (& $deadlineLines $NextPlan)
+        & $block 'Delegadas' (& $delegatedLines $NextPlan)
+    } else {
+        $title = "Hoje: $(& $tasksLabel $Plan)$eventsLabel"
+        & $agendaLines $Plan.Today '📅 Agenda'
+        & $block 'Tarefas' (& $taskLines $Plan)
+        & $block 'Prazos' (& $deadlineLines $Plan)
+        & $block 'Delegadas' (& $delegatedLines $Plan)
+    }
+    if ($lines.Count -eq 0) { $lines.Add('Nada agendado.') }
+    [pscustomobject]@{ Title = $title; Body = ($lines -join "`n"); Tag = "resumo-$($Slot.ToLower())" }
 }
 
 function Send-PPEEmail($Mail, $Alerts) {
@@ -274,27 +396,54 @@ try {
         $next = Get-PPENextWorkingDay $plan.Today $plan.Settings
         $nextPlan = Get-PPEPlan -Data $data -Config $config -Today $next -LabelDate $plan.Today
     }
-    $mail = New-PPEEmailHtml -Plan $plan -Config $config -Slot $Slot -NextPlan $nextPlan
+    # Agenda do dia a que o email se refere (fim do dia: o próximo dia útil)
+    $agendaDay = if ($nextPlan) { $nextPlan.Today } else { $plan.Today }
+    $agenda = Get-PPEAgenda $data $agendaDay
+    if ($agenda.Problem -eq 'sem-permissao' -and -not $Preview -and (Get-PPEState).agendaPermissaoAviso -ne $todayKey) {
+        Set-PPEStateValue 'agendaPermissaoAviso' $todayKey
+        try { Show-PPEToast -Config $config -Tag 'agenda' -Title 'PPEPlan — falta acesso ao Calendário' -Body 'Para a agenda aparecer nos emails e notificações: menu Iniciar → PPEPlan → Mudar conta Google.' } catch { }
+    }
+    $mail = New-PPEEmailHtml -Plan $plan -Config $config -Slot $Slot -NextPlan $nextPlan -Agenda $agenda
+    $pushText = New-PPEPushText -Plan $plan -Config $config -Slot $Slot -NextPlan $nextPlan -Agenda $agenda
 
     if ($Preview) {
         $out = Join-Path $script:PPE_StateDir 'email-preview.html'
         [IO.File]::WriteAllText($out, $mail.Html, (New-Object Text.UTF8Encoding($true)))
         Write-Output "Assunto: $($mail.Subject)"
         Write-Output "Pré-visualização: $out"
+        Write-Output ''
+        Write-Output "Notificação no telemóvel: $($pushText.Title)"
+        Write-Output $pushText.Body
         Start-Process $out
         return
     }
 
-    Send-PPEEmail $mail $alerts
+    $sendEmail = if ($Force) { $Canal -ne 'Push' } else { $alerts.SendEmail }
+    $sendPush = -not $Force -or $Canal -ne 'Email'
+
+    if ($sendEmail) { Send-PPEEmail $mail $alerts }
     # Um envio manual (-Force) também conta como o email do dia: evita que o disparo
-    # automático/nova tentativa volte a enviar. Para testar sem afetar, usar -Preview.
-    Set-PPEStateValue $stateKey $todayKey
-    $marca = @{}
-    $marca[$stateKey] = $todayKey
-    $marca[$stateKey + 'By'] = (Get-PPEInstallId).Name
-    try { Set-PPESharedEmailValues $marca }
-    catch { Write-PPELog "Aviso: não foi possível registar o envio no Drive: $($_.Exception.Message)" }
-    Write-PPELog "Email $Slot enviado: $($mail.Subject)"
+    # automático/nova tentativa volte a enviar. Para testar sem afetar, usar -Preview
+    # (ou -Canal Push, que só testa o telemóvel).
+    if (-not ($Force -and $Canal -eq 'Push')) {
+        Set-PPEStateValue $stateKey $todayKey
+        $marca = @{}
+        $marca[$stateKey] = $todayKey
+        $marca[$stateKey + 'By'] = (Get-PPEInstallId).Name
+        try { Set-PPESharedEmailValues $marca }
+        catch { Write-PPELog "Aviso: não foi possível registar o envio no Drive: $($_.Exception.Message)" }
+        if ($sendEmail) { Write-PPELog "Email $Slot enviado: $($mail.Subject)" }
+        else { Write-PPELog "Email $Slot desligado nas Definições (só telemóvel)" }
+    }
+
+    # Uma falha no telemóvel não repete o email: fica no log e em ⚙ na app
+    if ($sendPush) {
+        try {
+            $sent = Send-PPEPush -Title $pushText.Title -Body $pushText.Body -Tag $pushText.Tag -Url ([string]$config.appUrl)
+            if ($sent -gt 0) { Write-PPELog "Push $Slot enviado para $sent dispositivo(s)" }
+        }
+        catch { Write-PPELog "ERRO Push ${Slot}: $($_.Exception.Message)" }
+    }
 }
 catch {
     $err = $_.Exception.Message

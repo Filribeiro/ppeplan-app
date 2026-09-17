@@ -19,6 +19,20 @@ try {
     # Dá sinal de vida na lista de PCs da conta (não é motivo para falhar o resto)
     try { Update-PPEPcStatus $config } catch { }
     $data = Read-PPEData $config -Quiet
+
+    # Notificação de teste pedida na app: só lê o ficheiro (e compila o push) quando mudou
+    try {
+        $pf = Find-PPEDriveStateFile $script:PPE_PushFileName
+        if ($pf -and [string]$pf.modifiedTime -ne [string](Get-PPEState).pushFileModified) {
+            Set-PPEStateValue 'pushFileModified' ([string]$pf.modifiedTime)
+            $pushText = Read-PPEDriveText $pf.id
+            if ($pushText -match '"testePedido"') {
+                . (Join-Path $PSScriptRoot 'PPEPlan-Push.ps1')
+                Invoke-PPEPushTest ($pushText | ConvertFrom-Json) $config
+            }
+        }
+    } catch { Write-PPELog "ERRO Push teste: $($_.Exception.Message)" }
+
     $alerts = Get-PPEAlerts $data $config
     $now = Get-Date
     foreach ($s in $alerts.Slots) {

@@ -1,5 +1,5 @@
 ﻿# ============================================================
-#  PPEPlan — conta Google (login, Drive e Gmail)
+#  PPEPlan — conta Google (login, Drive, Gmail e Calendário)
 #  Login OAuth "aplicação instalada": abre o browser, recebe o código
 #  num porto local (127.0.0.1) e guarda o refresh token cifrado com
 #  DPAPI em %LOCALAPPDATA%\PPEPlan\google-token.xml (só este
@@ -13,14 +13,19 @@
 $script:PPE_DataFileName  = 'ppeplan-data.json'
 $script:PPE_EmailStateName = 'ppeplan-emails-enviados.json'
 $script:PPE_PcsFileName    = 'ppeplan-pcs.json'
+$script:PPE_PushFileName   = 'ppeplan-push.json'
 $script:PPE_TokenPath = Join-Path $env:LOCALAPPDATA 'PPEPlan\google-token.xml'
 $script:PPE_Scopes = @(
     'openid', 'email',
     'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/gmail.send'
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/calendar.readonly'
 )
+$script:PPE_CalendarScope = 'https://www.googleapis.com/auth/calendar.readonly'
 $script:PPE_AccessToken = $null
 $script:PPE_AccessTokenExpires = [DateTime]::MinValue
+# Âmbitos que a Google concedeu ao token atual (instalações antigas não têm o Calendário)
+$script:PPE_GrantedScopes = @()
 
 function Get-PPEOAuthClient {
     $c = Get-Content -LiteralPath (Join-Path $script:PPE_Root 'oauth-client.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -150,6 +155,7 @@ function Connect-PPEGoogle([int]$TimeoutMinutes = 5) {
 
     $script:PPE_AccessToken = $tok.access_token
     $script:PPE_AccessTokenExpires = (Get-Date).AddSeconds([int]$tok.expires_in - 60)
+    $script:PPE_GrantedScopes = $granted
     return $info.email
 }
 
@@ -171,7 +177,14 @@ function Get-PPEAccessToken {
     }
     $script:PPE_AccessToken = $tok.access_token
     $script:PPE_AccessTokenExpires = (Get-Date).AddSeconds([int]$tok.expires_in - 60)
+    $script:PPE_GrantedScopes = @(([string]$tok.scope) -split ' ')
     return $script:PPE_AccessToken
+}
+
+# O login deste PC já inclui o Calendário? (instalações anteriores a esta versão não)
+function Test-PPECalendarGranted {
+    Get-PPEAccessToken | Out-Null
+    return $script:PPE_GrantedScopes -contains $script:PPE_CalendarScope
 }
 
 function Invoke-PPEGoogleApi {
@@ -202,7 +215,7 @@ function Find-PPEDriveFile([string]$Name) {
 # cada PC ficava a ler o seu e o registo deixava de ser partilhado.
 function Find-PPEDriveStateFile([string]$Name) {
     $q = [Uri]::EscapeDataString("name='$Name' and trashed=false")
-    $r = Invoke-PPEGoogleApi "https://www.googleapis.com/drive/v3/files?q=$q&orderBy=createdTime&fields=files(id,name,createdTime)"
+    $r = Invoke-PPEGoogleApi "https://www.googleapis.com/drive/v3/files?q=$q&orderBy=createdTime&fields=files(id,name,createdTime,modifiedTime)"
     $files = @($r.files)
     if ($files.Count -eq 0) { return $null }
     foreach ($extra in @($files | Select-Object -Skip 1)) {

@@ -5,7 +5,7 @@
 
 // Substituído pelo Publicar-App.ps1 em cada publicação com alterações à app:
 // muda os bytes deste ficheiro e a app mostra "Há uma versão nova".
-const BUILD = "06B81B834655";
+const BUILD = "078481844B7D";
 const CACHE_NAME = "ppeplan-shell";
 const APP_SHELL = [
   "./",
@@ -35,6 +35,31 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
+  );
+});
+
+// Resumos da manhã/fim do dia enviados pelo PPEPlan instalado no Windows
+// (PPEPlan-Push.ps1). A mensagem traz { title, body, tag }.
+self.addEventListener("push", (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; }
+  catch (e) { d = { body: event.data ? event.data.text() : "" }; }
+  event.waitUntil(self.registration.showNotification(d.title || "PPEPlan", {
+    body: d.body || "",
+    tag: d.tag || "ppeplan",
+    renotify: true,
+    icon: "icon-192.png",
+    lang: "pt-PT"
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.startsWith(self.registration.scope) && "focus" in c);
+      return open ? open.focus() : self.clients.openWindow(self.registration.scope);
+    })
   );
 });
 

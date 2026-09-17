@@ -227,6 +227,8 @@ function Get-PPEAlerts($Data, $Config) {
     }
     [pscustomobject]@{
         Slots          = @($slots)
+        # Desligado: os resumos da manhã/fim do dia só vão para o telemóvel
+        SendEmail      = if ($a -and $null -ne $a.sendEmail) { [bool]$a.sendEmail } else { $true }
         EmailTo        = if ($a -and $a.emailTo) { [string]$a.emailTo } else { '' }
         NotifyOnThisPC = [bool]$Config.notifications.enabled
     }
@@ -361,6 +363,106 @@ function Get-PPEPlan {
             $_.status -eq 'completed' -and $_.completedAt -and ([DateTime]::Parse($_.completedAt, $script:INV)).ToLocalTime().Date -eq $Today })
         SavedAt   = if ($Data.savedAt) { ([DateTime]::Parse($Data.savedAt, $script:INV)).ToLocalTime() } else { $null }
     }
+}
+
+# ---------- Agenda (Google Calendar) nos emails e notificações ----------
+#  settings.alerts.agenda (Definições da app):
+#  { "initials": "FR", "calendars": { "<id>": { "mode": "all" | "tagged", "name": "..." } } }
+#  "tagged": só eventos com as iniciais entre [] — [FR] Reunião, [FR/EF] ..., [RS/FR] ...
+
+function Get-PPEAgendaSettings($Data) {
+    $a = if ($Data -and $Data.settings -and $Data.settings.alerts) { $Data.settings.alerts.agenda } else { $null }
+    $initials = @(if ($a -and $a.initials) {
+        ([string]$a.initials -split '[\s,;/]+') | Where-Object { $_ } | ForEach-Object { $_.ToUpperInvariant() }
+    })
+    $calendars = @(if ($a -and $a.calendars) {
+        foreach ($p in $a.calendars.PSObject.Properties) {
+            $mode = [string]$p.Value.mode
+            if ($mode -ne 'all' -and $mode -ne 'tagged') { continue }
+            [pscustomobject]@{ Id = $p.Name; Mode = $mode; Name = if ($p.Value.name) { [string]$p.Value.name } else { $p.Name } }
+        }
+    })
+    [pscustomobject]@{ Initials = $initials; Calendars = $calendars }
+}
+
+# [FR] Reunião / [FR/EF] Reunião 2 / [RS/FR] Reunião 3 → verdadeiro para FR (não para [FRA])
+function Test-PPEEventTagged([string]$Title, [string[]]$Initials) {
+    if (-not $Initials -or $Initials.Count -eq 0) { return $false }
+    foreach ($m in [regex]::Matches($Title, '\[([^\]]+)\]')) {
+        foreach ($tok in ($m.Groups[1].Value -split '[\s/\\,;+&|-]+')) {
+            if ($tok -and $Initials -contains $tok.ToUpperInvariant()) { return $true }
+        }
+    }
+    return $false
+}
+
+# Eventos de um dia nos calendários escolhidos. Problem: '' | 'sem-permissao' | mensagem
+function Get-PPEAgenda($Data, [DateTime]$Day) {
+    $cfg = Get-PPEAgendaSettings $Data
+    $result = [pscustomobject]@{ Configured = $cfg.Calendars.Count -gt 0; Events = @(); Problem = '' }
+    if (-not $result.Configured) { return $result }
+    try {
+        if (-not (Test-PPECalendarGranted)) { $result.Problem = 'sem-permissao'; return $result }
+    } catch { $result.Problem = $_.Exception.Message; return $result }
+
+    $from = New-Object DateTimeOffset ([DateTime]::SpecifyKind($Day.Date, [DateTimeKind]::Local))
+    $to = $from.AddDays(1)
+    $fmt = { param($d) [Uri]::EscapeDataString($d.ToString("yyyy-MM-dd'T'HH:mm:sszzz", $script:INV)) }
+    $fields = [Uri]::EscapeDataString('items(id,iCalUID,summary,location,status,htmlLink,eventType,start,end,attendees(self,responseStatus))')
+    $events = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    $failed = @()
+    foreach ($cal in $cfg.Calendars) {
+        try {
+            $r = Invoke-PPEGoogleApi ("https://www.googleapis.com/calendar/v3/calendars/$([Uri]::EscapeDataString($cal.Id))/events" +
+                "?singleEvents=true&orderBy=startTime&maxResults=100&timeMin=$(& $fmt $from)&timeMax=$(& $fmt $to)&fields=$fields")
+        } catch {
+            $failed += $cal.Name
+            Write-PPELog "Agenda: não foi possível ler $($cal.Name): $($_.Exception.Message)"
+            continue
+        }
+        foreach ($e in @($r.items)) {
+            if (-not $e -or $e.status -eq 'cancelled' -or -not $e.start) { continue }
+            if ($e.eventType -in 'workingLocation', 'birthday') { continue }
+            $me = @($e.attendees | Where-Object { $_ -and $_.self }) | Select-Object -First 1
+            if ($me -and $me.responseStatus -eq 'declined') { continue }
+            $title = if ($e.summary) { [string]$e.summary } else { '(sem título)' }
+            if ($cal.Mode -eq 'tagged' -and -not (Test-PPEEventTagged $title $cfg.Initials)) { continue }
+
+            $allDay = [bool]$e.start.date
+            if ($allDay) {
+                $start = ConvertFrom-IsoDay ([string]$e.start.date)
+                $end = if ($e.end -and $e.end.date) { ConvertFrom-IsoDay ([string]$e.end.date) } else { $start.AddDays(1) }
+            } else {
+                $start = [DateTimeOffset]::Parse([string]$e.start.dateTime, $script:INV).LocalDateTime
+                $end = if ($e.end -and $e.end.dateTime) { [DateTimeOffset]::Parse([string]$e.end.dateTime, $script:INV).LocalDateTime } else { $start }
+            }
+            # O mesmo evento pode estar em dois dos calendários escolhidos
+            $key = if ($e.iCalUID) { "$($e.iCalUID)|$($start.ToString('o'))" } else { "$($cal.Id)|$($e.id)" }
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            $events.Add([pscustomobject]@{
+                Title = $title; AllDay = $allDay; Start = $start; End = $end
+                Where = [string]$e.location; Calendar = $cal.Name; Link = [string]$e.htmlLink
+            })
+        }
+    }
+    $result.Events = @($events | Sort-Object @{ Expression = { -not $_.AllDay } }, Start, Title)
+    if ($failed.Count -gt 0) { $result.Problem = "não foi possível ler: $($failed -join ', ')" }
+    return $result
+}
+
+# "09:30–10:30", "Dia todo", "até 11:00" (começou no dia anterior)
+function Format-PPEEventTime($Event, [DateTime]$Day) {
+    if ($Event.AllDay) { return 'Dia todo' }
+    $s = if ($Event.Start.Date -lt $Day.Date) { '' } else { $Event.Start.ToString('HH:mm', $script:INV) }
+    $e = if ($Event.End.Date -gt $Day.Date) { '' } else { $Event.End.ToString('HH:mm', $script:INV) }
+    if (-not $s) {
+        if ($e) { return "até $e" }
+        return 'Dia todo'
+    }
+    if (-not $e -or $e -eq $s) { return $s }
+    return "$s–$e"
 }
 
 function Format-PPEHours([double]$h) {

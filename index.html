@@ -295,6 +295,13 @@
   .pc-tag.ok { color: var(--success); background: var(--success-soft); }
   .pc-tag.wait { color: var(--warning); background: var(--warning-soft); }
   .pc-tag.off { color: var(--text-muted); background: var(--surface); }
+  .pc-tag.err { color: var(--danger); background: var(--danger-soft); }
+  .pc-row .cal-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .pc-row .select { width: auto; min-width: 150px; padding: 6px 10px; font-size: 13px; border-radius: 10px; }
+  .pc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .pc-actions .btn-secondary { padding: 7px 12px; font-size: 13px; }
+  .pc-remove { border: none; background: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 2px 6px; }
+  @media (max-width: 420px) { .pc-row .select { min-width: 0; max-width: 150px; } }
 
   .sync-banner { display: none; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--ppe-red-soft); color: var(--ppe-red-dark); border-bottom: 1px solid var(--ppe-red); font-size: 13px; font-weight: 500; }
   .sync-banner.show { display: flex; }
@@ -661,7 +668,15 @@
     <div class="settings-section">Emails e notificações</div>
     <div class="settings-desc">Enviados pelo PPEPlan instalado no Windows, nos dias úteis. Valem para todos os PCs desta conta; para desligar as notificações só num PC: menu Iniciar → PPEPlan.</div>
     <div id="s-alerts"></div>
+    <div class="settings-row"><div><div class="settings-label">Resumos por email</div><div class="settings-desc">Desligado: os resumos só vão para os telemóveis com notificações ativas</div></div><input id="s-send-email" type="checkbox" /></div>
     <div class="settings-row"><div><div class="settings-label">Enviar emails para</div><div class="settings-desc">Vazio = a própria conta Google. Vários: separar por vírgula</div></div><input id="s-email-to" class="input" type="text" placeholder="conta Google" autocomplete="off" style="width:200px" /></div>
+    <div class="settings-section">Agenda nos resumos</div>
+    <div class="settings-desc">Eventos do Google Calendar que entram no email e na notificação do telemóvel (manhã: os de hoje; fim do dia: os do dia seguinte).</div>
+    <div class="settings-row"><div><div class="settings-label">As minhas iniciais</div><div class="settings-desc">Para “Só com as minhas iniciais”: [FR] Reunião, [FR/EF] …, [RS/FR] …</div></div><input id="s-agenda-initials" class="input" type="text" placeholder="FR" maxlength="20" autocomplete="off" style="width:90px;text-transform:uppercase" /></div>
+    <div class="settings-row" style="grid-template-columns:1fr"><div><div class="settings-label">Calendários</div><div class="pc-list" id="s-agenda-cals"></div></div></div>
+    <div class="settings-section">Notificações no telemóvel</div>
+    <div class="settings-desc">Recebe os resumos da manhã e do fim do dia como notificação, à mesma hora do email. No Android: abre o PPEPlan no Chrome, instala a app (⋮ → Instalar aplicação) e ativa aqui. São enviadas por um PC com o PPEPlan instalado, que tem de estar ligado a essa hora.</div>
+    <div class="settings-row" style="grid-template-columns:1fr"><div><div id="s-push"></div></div></div>
     <div class="settings-row" style="grid-template-columns:1fr"><div><div class="settings-label">PCs desta conta</div><div class="settings-desc">Os que têm o PPEPlan instalado no Windows. Cada um apanha sozinho a versão publicada em até 1 hora.</div><div class="pc-list" id="s-pcs"></div></div></div>
     <div class="settings-section">Dados</div>
     <div class="settings-row"><div><div class="settings-label">Limpar ordem manual</div></div><button class="btn-secondary" id="s-clear-manual">Limpar</button></div>
@@ -705,8 +720,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.15";
-const APP_PUBLISHED = "16/09/2026 22:23";
+const APP_VERSION = "2.16";
+const APP_PUBLISHED = "17/09/2026 08:48";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -721,20 +736,26 @@ const EMAIL_KEY = "ppeplan-account-email";
 const FILE_NAME = "ppeplan-data.json";
 // Escrito pelos scripts do Windows (PPEPlan-Common.ps1: Update-PPEPcStatus)
 const PCS_FILE_NAME = "ppeplan-pcs.json";
+// Telemóveis com notificações ativas + chaves VAPID da conta; lido pelo PPEPlan-Push.ps1 no Windows
+const PUSH_FILE_NAME = "ppeplan-push.json";
+const PUSH_DEVICE_KEY = "ppeplan-push-device";
 
 // alerts: lido pelo PPEPlan instalado no Windows (instalador/scripts) — emails e notificações
 const ALERT_DEFS = [
-  ["emailMorning",   "Email da manhã",            "Tarefas de hoje",                "08:00"],
-  ["emailEvening",   "Email de fim do dia",       "Resumo e plano do dia seguinte", "18:00"],
-  ["notifyMorning",  "Notificação da manhã",      "Tarefas de hoje e prazos",       "09:00"],
-  ["notifyMidday",   "Notificação do meio-dia",   "Ponto de situação",              "14:00"],
-  ["notifyEndOfDay", "Notificação de fim do dia", "Lembrete para marcar concluídas", "17:30"]
+  ["emailMorning",   "Resumo da manhã",           "Tarefas e agenda de hoje · email e telemóvel",       "08:00"],
+  ["emailEvening",   "Resumo de fim do dia",      "Concluídas e plano do dia seguinte · email e telemóvel", "18:00"],
+  ["notifyMorning",  "Notificação da manhã",      "Windows · tarefas de hoje e prazos",       "09:00"],
+  ["notifyMidday",   "Notificação do meio-dia",   "Windows · ponto de situação",              "14:00"],
+  ["notifyEndOfDay", "Notificação de fim do dia", "Windows · lembrete para marcar concluídas", "17:30"]
 ];
 const defaultSettings = { dailyHours: 8, workWeekends: false, calendars: {}, calShowTasks: true, weights: { deadline: 0.40, slack: 0.35, priority: 0.25 },
-  alerts: { emailTo: "", ...Object.fromEntries(ALERT_DEFS.map(([k,,,t]) => [k, { on: true, time: t }])) } };
+  alerts: { emailTo: "", sendEmail: true, agenda: { initials: "", calendars: {} }, ...Object.fromEntries(ALERT_DEFS.map(([k,,,t]) => [k, { on: true, time: t }])) } };
 function mergeSettings(s) {
   s = s || {}; const a = s.alerts || {};
-  const alerts = { emailTo: typeof a.emailTo === "string" ? a.emailTo : "" };
+  const ag = a.agenda || {};
+  // agenda.calendars: { id: { mode: "all" | "tagged", name } } — calendários fora da lista não entram
+  const alerts = { emailTo: typeof a.emailTo === "string" ? a.emailTo : "", sendEmail: a.sendEmail !== false,
+    agenda: { initials: typeof ag.initials === "string" ? ag.initials : "", calendars: (ag.calendars && typeof ag.calendars === "object") ? ag.calendars : {} } };
   for (const [k] of ALERT_DEFS) alerts[k] = { ...defaultSettings.alerts[k], ...(a[k] || {}) };
   return { ...defaultSettings, ...s, weights: { ...defaultSettings.weights, ...(s.weights || {}) }, alerts };
 }
@@ -905,6 +926,8 @@ function initCalendarAuth() {
       localStorage.setItem(CAL_ON_KEY, "1");
       state.cal.error = "";
       loadCalendarData(true);
+      // Ligado a partir das Definições (Agenda nos resumos)
+      if ($("#settings-modal").classList.contains("active")) renderAgendaSettings();
     }
   });
   try {
@@ -1081,6 +1104,7 @@ async function onSignedIn() {
     else if (state.tasks.length > 0) { await saveToDrive(); render(); }
     else if (confirm("Drive vazio. Importar de um JSON existente?")) $("#import-file").click();
     else setSyncStatus("saved");
+    syncPushDevice();
   } catch(e) { toast("Erro ao ligar ao Drive: "+e.message, "error"); setSyncStatus("error"); }
 }
 function showWelcome() {
@@ -1275,6 +1299,16 @@ function normalizeEvent(e, cal, colors) {
   const c = (e.colorId && colors && colors[e.colorId]) ? colors[e.colorId].background : cal.color;
   return { id: cal.id + "|" + e.id, calId: cal.id, title: e.summary || "(sem título)", start, end, allDay, color: c, link: e.htmlLink || "", where: e.location || "" };
 }
+async function loadCalendarList() {
+  const c = state.cal;
+  const cl = await calCall("/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,summaryOverride,backgroundColor,primary,selected)");
+  c.list = (cl.items || []).map(x => ({ id: x.id, name: x.summaryOverride || x.summary || x.id, color: x.backgroundColor || "#5B6770", primary: !!x.primary, selected: x.selected !== false }));
+  c.list.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0) || a.name.localeCompare(b.name, "pt"));
+  // Primeira vez: respeita o que já está ligado no Google
+  let novo = false;
+  c.list.forEach(x => { if (state.settings.calendars[x.id] === undefined) { state.settings.calendars[x.id] = x.selected; novo = true; } });
+  if (novo) scheduleSave();
+}
 async function loadCalendarData(force) {
   const c = state.cal, key = state.calendarWeekStart;
   // Um carregamento preso há mais de 30s não pode bloquear todas as tentativas seguintes
@@ -1283,15 +1317,7 @@ async function loadCalendarData(force) {
   c.loading = true; c.loadingAt = Date.now(); c.error = "";
   if (state.view === "calendar") render();
   try {
-    if (!c.list) {
-      const cl = await calCall("/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,summaryOverride,backgroundColor,primary,selected)");
-      c.list = (cl.items || []).map(x => ({ id: x.id, name: x.summaryOverride || x.summary || x.id, color: x.backgroundColor || "#5B6770", primary: !!x.primary, selected: x.selected !== false }));
-      c.list.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0) || a.name.localeCompare(b.name, "pt"));
-      // Primeira vez: respeita o que já está ligado no Google
-      let novo = false;
-      c.list.forEach(x => { if (state.settings.calendars[x.id] === undefined) { state.settings.calendars[x.id] = x.selected; novo = true; } });
-      if (novo) scheduleSave();
-    }
+    if (!c.list) await loadCalendarList();
     if (!c.colors) { try { c.colors = (await calCall("/colors")).event || {}; } catch(e) { c.colors = {}; } }
     const start = new Date(key + "T00:00:00"), end = addDays(start, 7);
     const on = c.list.filter(x => state.settings.calendars[x.id] !== false);
@@ -2195,11 +2221,222 @@ function renderAlertSettings() {
   $("#s-alerts").innerHTML = ALERT_DEFS.map(([k, label, desc]) => `<div class="settings-row"><div><div class="settings-label">${label}</div><div class="settings-desc">${desc}</div></div><div class="alert-ctl"><input type="time" class="input" id="s-a-${k}-time" value="${escapeHtml(a[k].time)}" ${a[k].on?"":"disabled"} /><input type="checkbox" id="s-a-${k}-on" title="Ligar/desligar" ${a[k].on?"checked":""} /></div></div>`).join("");
   for (const [k] of ALERT_DEFS) $(`#s-a-${k}-on`).addEventListener("change", e => { $(`#s-a-${k}-time`).disabled = !e.target.checked; });
   $("#s-email-to").value = a.emailTo || "";
+  $("#s-send-email").checked = a.sendEmail !== false;
+  $("#s-agenda-initials").value = a.agenda.initials || "";
+  renderAgendaSettings();
+  renderPushSettings();
 }
 function readAlertSettings() {
-  const prev = state.settings.alerts, alerts = { emailTo: $("#s-email-to").value.trim() };
+  const prev = state.settings.alerts;
+  const alerts = { emailTo: $("#s-email-to").value.trim(), sendEmail: $("#s-send-email").checked,
+    agenda: { initials: $("#s-agenda-initials").value.trim().toUpperCase(), calendars: prev.agenda.calendars } };
   for (const [k] of ALERT_DEFS) { const t = $(`#s-a-${k}-time`).value; alerts[k] = { on: $(`#s-a-${k}-on`).checked, time: /^\d{2}:\d{2}$/.test(t) ? t : prev[k].time }; }
   return alerts;
+}
+
+// ====== Agenda nos resumos: que calendários entram no email/notificação ======
+const AGENDA_MODES = [["", "Não incluir"], ["all", "Todos os eventos"], ["tagged", "Só com as minhas iniciais"]];
+async function renderAgendaSettings() {
+  const box = $("#s-agenda-cals");
+  if (!box) return;
+  const chosen = state.settings.alerts.agenda.calendars;
+  const row = (id, name, color, note) => {
+    const mode = chosen[id] ? chosen[id].mode : "";
+    const opts = AGENDA_MODES.map(([v, l]) => `<option value="${v}" ${v === mode ? "selected" : ""}>${l}</option>`).join("");
+    return `<div class="pc-row"><div><div class="pc-name"><span class="cal-dot" style="background:${escapeHtml(color)}"></span>${escapeHtml(name)}</div>${note ? `<div class="pc-meta">${escapeHtml(note)}</div>` : ""}</div>
+      <select class="select" data-agenda-cal="${escapeHtml(id)}" data-name="${escapeHtml(name)}">${opts}</select></div>`;
+  };
+  const bind = () => box.querySelectorAll("[data-agenda-cal]").forEach(sel => sel.addEventListener("change", () => {
+    const id = sel.dataset.agendaCal;
+    if (sel.value) chosen[id] = { mode: sel.value, name: sel.dataset.name };
+    else delete chosen[id];
+  }));
+  // Escolhidos antes mas que já não estão na lista (ex.: deixou de ter acesso)
+  const orphans = list => Object.keys(chosen).filter(id => !list.some(x => x.id === id))
+    .map(id => row(id, chosen[id].name || id, "#9AA3AB", "não encontrado nesta conta")).join("");
+
+  if (!calLinked()) {
+    box.innerHTML = orphans([]) + `<div class="settings-desc">Liga o Calendário Google para escolheres os calendários.</div>
+      <div class="pc-actions"><button class="btn-secondary" id="s-agenda-connect">Ligar Calendário Google</button></div>`;
+    bind();
+    $("#s-agenda-connect").addEventListener("click", connectCalendar);
+    return;
+  }
+  if (!state.cal.list) {
+    box.innerHTML = `<div class="settings-desc">A carregar calendários…</div>`;
+    try { await loadCalendarList(); }
+    catch (e) {
+      box.innerHTML = orphans([]) + `<div class="settings-desc">Não foi possível ler os calendários. </div>
+        <div class="pc-actions"><button class="btn-secondary" id="s-agenda-connect">Ligar outra vez</button></div>`;
+      bind();
+      $("#s-agenda-connect").addEventListener("click", connectCalendar);
+      return;
+    }
+  }
+  const list = state.cal.list;
+  box.innerHTML = list.map(x => row(x.id, x.name, x.color, x.primary ? "calendário principal" : "")).join("") + orphans(list);
+  bind();
+}
+
+// ====== Notificações no telemóvel (Web Push) ======
+// A app só subscreve e guarda a subscrição no Drive; quem envia é o PC (PPEPlan-Push.ps1),
+// assinado com as chaves VAPID da conta, que ficam no mesmo ficheiro.
+const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const fromB64url = s => { s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); };
+function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && window.isSecureContext; }
+function pushDeviceName() {
+  const ua = navigator.userAgent;
+  const os = /Android/i.test(ua) ? "Android" : /iPhone|iPad/i.test(ua) ? "iPhone/iPad" : /Windows/i.test(ua) ? "Windows" : /Mac OS/i.test(ua) ? "Mac" : "Dispositivo";
+  const br = /SamsungBrowser/.test(ua) ? "Samsung Internet" : /EdgA?\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : "browser";
+  return `${os} · ${br}`;
+}
+// O ficheiro mais antigo com o nome manda (os scripts do Windows fazem o mesmo)
+async function readPushFile() {
+  const q = encodeURIComponent(`name='${PUSH_FILE_NAME}' and trashed=false`);
+  const r = await driveCall(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime&fields=files(id)`);
+  if (!r.ok) throw new Error("Drive " + r.status);
+  const d = await r.json();
+  if (!d.files || !d.files.length) return { id: null, data: { dispositivos: [] } };
+  const id = d.files[0].id;
+  const c = await driveCall(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
+  if (!c.ok) throw new Error("Drive " + c.status);
+  const t = await c.text();
+  let data = {};
+  try { data = t.trim() ? JSON.parse(t) : {}; } catch (e) { data = {}; }
+  if (!Array.isArray(data.dispositivos)) data.dispositivos = [];
+  return { id, data };
+}
+async function writePushFile(file) {
+  let id = file.id;
+  if (!id) {
+    const cr = await driveCall("https://www.googleapis.com/drive/v3/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: PUSH_FILE_NAME, mimeType: "application/json" }) });
+    if (!cr.ok) throw new Error("Drive " + cr.status);
+    id = (await cr.json()).id;
+  }
+  const r = await driveCall(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(file.data, null, 2) });
+  if (!r.ok) throw new Error("Drive " + r.status);
+}
+async function ensureVapid(file) {
+  const v = file.data.vapid;
+  if (v && v.publicKey && v.privateKey) return v;
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const jwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+  const pub = new Uint8Array(65); pub[0] = 4; pub.set(fromB64url(jwk.x), 1); pub.set(fromB64url(jwk.y), 33);
+  file.data.vapid = { publicKey: b64url(pub), privateKey: jwk.d };
+  return file.data.vapid;
+}
+function swReady() {
+  return Promise.race([navigator.serviceWorker.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("O service worker não arrancou. Recarrega a app e tenta outra vez.")), 10000))]);
+}
+async function currentSubscription(publicKey) {
+  const reg = await swReady();
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && publicKey) {
+    const k = sub.options && sub.options.applicationServerKey;
+    if (!k || b64url(k) !== publicKey) { await sub.unsubscribe().catch(() => {}); sub = null; }
+  }
+  return { reg, sub };
+}
+function upsertDevice(file, sub) {
+  const j = sub.toJSON();
+  let id = localStorage.getItem(PUSH_DEVICE_KEY);
+  if (!id) { id = uid(); localStorage.setItem(PUSH_DEVICE_KEY, id); }
+  const list = file.data.dispositivos.filter(d => d && d.id !== id && d.endpoint !== j.endpoint);
+  const prev = file.data.dispositivos.find(d => d && d.id === id) || {};
+  list.push({ ...prev, id, nome: prev.nome || pushDeviceName(), endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, criado: prev.criado || new Date().toISOString() });
+  file.data.dispositivos = list;
+}
+async function enablePush() {
+  if (Notification.permission === "denied") throw new Error("As notificações estão bloqueadas para esta app. Autoriza nas definições do browser/Android e tenta outra vez.");
+  if (await Notification.requestPermission() !== "granted") throw new Error("Sem autorização para mostrar notificações.");
+  const file = await readPushFile();
+  const vapid = await ensureVapid(file);
+  let { reg, sub } = await currentSubscription(vapid.publicKey);
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(vapid.publicKey) });
+  upsertDevice(file, sub);
+  await writePushFile(file);
+  reg.showNotification("PPEPlan — notificações ativas", { body: "Os resumos da manhã e do fim do dia vão chegar aqui.", icon: "icon-192.png", tag: "ativado" }).catch(() => {});
+}
+async function disablePush(deviceId) {
+  const mine = localStorage.getItem(PUSH_DEVICE_KEY);
+  const file = await readPushFile();
+  const target = deviceId || mine;
+  file.data.dispositivos = file.data.dispositivos.filter(d => d && d.id !== target);
+  if (file.id) await writePushFile(file);
+  if (target === mine) {
+    localStorage.removeItem(PUSH_DEVICE_KEY);
+    try { const { sub } = await currentSubscription(null); if (sub) await sub.unsubscribe(); } catch (e) {}
+  }
+}
+async function requestPushTest() {
+  const file = await readPushFile();
+  file.data.testePedido = new Date().toISOString();
+  await writePushFile(file);
+}
+// Ao entrar: a subscrição deste dispositivo pode ter mudado (o browser renova-a de vez em quando)
+async function syncPushDevice() {
+  try {
+    if (!pushSupported() || !localStorage.getItem(PUSH_DEVICE_KEY) || Notification.permission !== "granted") return;
+    const file = await readPushFile();
+    if (!file.data.vapid) return;
+    const { sub } = await currentSubscription(file.data.vapid.publicKey);
+    const me = file.data.dispositivos.find(d => d && d.id === localStorage.getItem(PUSH_DEVICE_KEY));
+    if (!sub) { if (me) { file.data.dispositivos = file.data.dispositivos.filter(d => d !== me); await writePushFile(file); } localStorage.removeItem(PUSH_DEVICE_KEY); return; }
+    const j = sub.toJSON();
+    if (me && me.endpoint === j.endpoint && me.p256dh === j.keys.p256dh) return;
+    upsertDevice(file, sub);
+    await writePushFile(file);
+  } catch (e) { console.warn("[PPEPlan] push:", e); }
+}
+function formatWhen(iso) {
+  // O .NET escreve 7 casas decimais nos segundos
+  const t = new Date(String(iso || "").replace(/(\.\d{3})\d+/, "$1"));
+  if (isNaN(t)) return "";
+  return t.toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+async function renderPushSettings(message) {
+  const box = $("#s-push");
+  if (!box) return;
+  if (!accessToken) { box.innerHTML = `<div class="settings-desc">Entra com a conta Google para ativares as notificações.</div>`; return; }
+  box.innerHTML = `<div class="settings-desc">A verificar…</div>`;
+  let file;
+  try { file = await readPushFile(); }
+  catch (e) { box.innerHTML = `<div class="settings-desc">Não foi possível ler os dispositivos (${escapeHtml(e.message)}).</div>`; return; }
+  const mine = localStorage.getItem(PUSH_DEVICE_KEY);
+  const devices = file.data.dispositivos.filter(d => d && d.endpoint);
+  const here = pushSupported() && Notification.permission === "granted" && devices.some(d => d.id === mine);
+
+  const rows = devices.map(d => {
+    const erro = String(d.ultimoErro || "");
+    const meta = [`ativado a ${formatWhen(d.criado)}`];
+    if (d.ultimoEnvio) meta.push(`última notificação ${formatWhen(d.ultimoEnvio)}`);
+    let tag = d.id === mine ? `<span class="pc-tag ok">este dispositivo</span>` : "";
+    // O PC limpa o erro quando a notificação seguinte sai bem
+    if (erro) { meta.push(`falhou a ${formatWhen(erro.split(" ")[0])}: ${erro.slice(erro.indexOf(" ") + 1, 120)}`); tag = `<span class="pc-tag err">com erro</span>`; }
+    return `<div class="pc-row"><div><div class="pc-name">${escapeHtml(d.nome || "Dispositivo")}</div><div class="pc-meta">${escapeHtml(meta.join(" · "))}</div></div>
+      <div style="display:flex;align-items:center;gap:4px">${tag}<button class="pc-remove" data-push-remove="${escapeHtml(d.id)}" title="Remover">✕</button></div></div>`;
+  }).join("");
+
+  let actions = "";
+  if (!pushSupported()) actions = `<div class="settings-desc">Este browser não recebe notificações push. No Android, usa o Chrome com a app instalada.</div>`;
+  else if (here) actions = `<button class="btn-secondary" id="s-push-off">Desativar neste dispositivo</button>`;
+  else actions = `<button class="btn-secondary" id="s-push-on">Ativar neste dispositivo</button>`;
+  if (devices.length) actions += `<button class="btn-secondary" id="s-push-test">Enviar teste</button>`;
+
+  box.innerHTML = `<div class="pc-list">${rows || `<div class="settings-desc">Nenhum dispositivo com notificações ativas.</div>`}</div>
+    <div class="pc-actions">${actions}</div>${message ? `<div class="settings-desc" style="margin-top:8px">${escapeHtml(message)}</div>` : ""}`;
+
+  const run = async (btn, fn, ok) => {
+    btn.disabled = true;
+    try { await fn(); renderPushSettings(ok); }
+    catch (e) { btn.disabled = false; toast(e.message || "Erro", "error"); }
+  };
+  $("#s-push-on")?.addEventListener("click", e => run(e.target, enablePush, "Ativado. A primeira notificação chega à hora do próximo resumo — ou usa “Enviar teste”."));
+  $("#s-push-off")?.addEventListener("click", e => run(e.target, () => disablePush(), "Desativado neste dispositivo."));
+  $("#s-push-test")?.addEventListener("click", e => run(e.target, requestPushTest, "Pedido enviado: um PC ligado com o PPEPlan envia a notificação dentro de 5 minutos."));
+  box.querySelectorAll("[data-push-remove]").forEach(b => b.addEventListener("click", () => {
+    if (confirm("Deixar de enviar notificações para este dispositivo?")) run(b, () => disablePush(b.dataset.pushRemove), "Dispositivo removido.");
+  }));
 }
 function closeSettings() { state.settings.dailyHours=parseFloat($("#s-daily-hours").value)||8; state.settings.workWeekends=$("#s-weekends").checked; const wd=parseFloat($("#s-w-deadline").value)||0,ws=parseFloat($("#s-w-slack").value)||0,wp=parseFloat($("#s-w-priority").value)||0; const tot=wd+ws+wp||1; state.settings.weights={deadline:wd/tot, slack:ws/tot, priority:wp/tot}; state.settings.alerts=readAlertSettings(); scheduleSave(); render(); $("#settings-modal").classList.remove("active"); }
 function exportData() { const p={tasks:state.tasks,settings:state.settings,exportedAt:new Date().toISOString()}; const b=new Blob([JSON.stringify(p,null,2)],{type:"application/json"}); const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=`ppeplan-backup-${isoDate(today0())}.json`; a.click(); URL.revokeObjectURL(u); }

@@ -24,7 +24,14 @@ try {
         if (-not $account) { throw 'Sem conta Google neste PC.' }
     }
     elseif ($account -and -not $NovaConta) {
-        try { Get-PPEAccessToken | Out-Null; Write-Host "  ✔ Conta Google: $($account.Email)" -ForegroundColor Green }
+        try {
+            if (Test-PPECalendarGranted) { Write-Host "  ✔ Conta Google: $($account.Email)" -ForegroundColor Green }
+            else {
+                # Logins anteriores à agenda nos emails não incluem o Calendário
+                Write-Host "  ! $($account.Email): falta autorizar o Calendário Google (agenda nos emails)." -ForegroundColor Yellow
+                $NovaConta = $true
+            }
+        }
         catch { Write-Host "  ! $($_.Exception.Message)" -ForegroundColor Yellow; $account = $null }
     }
     if (-not $Silencioso -and (-not $account -or $NovaConta)) {
