@@ -720,8 +720,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.17";
-const APP_PUBLISHED = "17/09/2026 09:01";
+const APP_VERSION = "2.18";
+const APP_PUBLISHED = "17/09/2026 09:13";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -2394,6 +2394,7 @@ function formatWhen(iso) {
   if (isNaN(t)) return "";
   return t.toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
+let pushTestTimer = null;
 async function renderPushSettings(message) {
   const box = $("#s-push");
   if (!box) return;
@@ -2423,6 +2424,20 @@ async function renderPushSettings(message) {
   else actions = `<button class="btn-secondary" id="s-push-on">Ativar neste dispositivo</button>`;
   if (devices.length) actions += `<button class="btn-secondary" id="s-push-test">Enviar teste</button>`;
 
+  // Estado do último "Enviar teste": o PC só verifica de 5 em 5 minutos, por isso mostra-se a espera
+  clearTimeout(pushTestTimer);
+  const pedido = String(file.data.testePedido || ""), pedidoAt = Date.parse(pedido);
+  if (pedido && Date.now() - pedidoAt < 15 * 60000) {
+    const hora = formatWhen(pedido).split(" ").pop();
+    if (file.data.testeEnviado !== pedido) {
+      message = `Teste pedido às ${hora}. À espera de um PC ligado com o PPEPlan — verifica de 5 em 5 minutos…`;
+      if ($("#settings-modal").classList.contains("active")) pushTestTimer = setTimeout(() => renderPushSettings(), 15000);
+    } else {
+      const quando = devices.map(d => d.ultimoEnvio).filter(Boolean).sort().pop();
+      message = `Teste pedido às ${hora} enviado${quando ? " às " + formatWhen(quando).split(" ").pop() : ""} pelo PC ${file.data.testeEnviadoPor || ""}. Se não apareceu, vê a barra de notificações do Android.`;
+    }
+  }
+
   box.innerHTML = `<div class="pc-list">${rows || `<div class="settings-desc">Nenhum dispositivo com notificações ativas.</div>`}</div>
     <div class="pc-actions">${actions}</div>${message ? `<div class="settings-desc" style="margin-top:8px">${escapeHtml(message)}</div>` : ""}`;
 
@@ -2433,7 +2448,7 @@ async function renderPushSettings(message) {
   };
   $("#s-push-on")?.addEventListener("click", e => run(e.target, enablePush, "Ativado. A primeira notificação chega à hora do próximo resumo — ou usa “Enviar teste”."));
   $("#s-push-off")?.addEventListener("click", e => run(e.target, () => disablePush(), "Desativado neste dispositivo."));
-  $("#s-push-test")?.addEventListener("click", e => run(e.target, requestPushTest, "Pedido enviado: um PC ligado com o PPEPlan envia a notificação dentro de 5 minutos."));
+  $("#s-push-test")?.addEventListener("click", e => run(e.target, requestPushTest));
   box.querySelectorAll("[data-push-remove]").forEach(b => b.addEventListener("click", () => {
     if (confirm("Deixar de enviar notificações para este dispositivo?")) run(b, () => disablePush(b.dataset.pushRemove), "Dispositivo removido.");
   }));

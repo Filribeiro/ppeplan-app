@@ -1,10 +1,10 @@
 {
-    "published":  "2026-09-17 09:01",
-    "commit":  "27f5ea6",
+    "published":  "2026-09-17 09:13",
+    "commit":  "f28d523",
     "app":  {
-                "build":  "1095A208AED6",
-                "version":  "2.17",
-                "published":  "17/09/2026 09:01"
+                "build":  "0CD50D7DA85A",
+                "version":  "2.18",
+                "published":  "17/09/2026 09:13"
             },
     "files":  {
                   "PPEPlan-Common.ps1":  "1CF2F6DE6919361A0677E5DA8F6DF1B6C066397866A28DABB226B96720D9ABBA",
@@ -17,6 +17,6 @@
                   "PPEPlan-Agendador.ps1":  "9C38FCF7B51BAA4A5183872D8F075BE0147CF8CD369303CFD795D1C70B38D718",
                   "Alternar-Notificacoes.ps1":  "65517D7C6A27AC7A80D206E5E100C69AA31A7540FA54244419F461F0E75CCD64",
                   "PPEPlan-Atualizar.ps1":  "36E79260FB914BD8E1FD45AC0631327A3F0A651A00CC7352A5141808093F1F23",
-                  "PPEPlan-Push.ps1":  "2A536E029D3E227FF9A430AFBF0B91D2A4F247FF5438722F41B0C23972ED680D"
+                  "PPEPlan-Push.ps1":  "1F88291339BE1DE7EDFD272D934B6068FE7A6FE029528F97A097ECEA1C88B64A"
               }
 }

@@ -5,7 +5,7 @@
 
 // Substituído pelo Publicar-App.ps1 em cada publicação com alterações à app:
 // muda os bytes deste ficheiro e a app mostra "Há uma versão nova".
-const BUILD = "1095A208AED6";
+const BUILD = "0CD50D7DA85A";
 const CACHE_NAME = "ppeplan-shell";
 const APP_SHELL = [
   "./",

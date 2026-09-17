@@ -387,8 +387,10 @@ function Invoke-PPEPushTest($Push, $Config) {
     $me = (Get-PPEInstallId).Name
     Save-PPEPushResults @{} @() @{ testeEnviado = $pedido; testeEnviadoPor = $me }
     if ($idade -gt 30) { return }
-    $sent = Send-PPEPush -Title 'PPEPlan — notificação de teste' `
+    # Etiqueta diferente em cada teste: com a mesma, o Android substituía a anterior sem aviso
+    $hora = Get-Date -Format 'HH:mm'
+    $sent = Send-PPEPush -Title "PPEPlan — notificação de teste ($hora)" `
         -Body "Se estás a ler isto, os resumos da manhã e do fim do dia vão chegar a este telemóvel.`nEnviada pelo PC $me." `
-        -Tag 'teste' -Url ([string]$Config.appUrl)
+        -Tag "teste-$(Get-Date -Format 'HHmmss')" -Url ([string]$Config.appUrl)
     Write-PPELog "Push de teste enviado para $sent dispositivo(s)"
 }
