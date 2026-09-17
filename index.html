@@ -721,8 +721,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.19";
-const APP_PUBLISHED = "17/09/2026 09:36";
+const APP_VERSION = "2.20";
+const APP_PUBLISHED = "17/09/2026 09:56";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -740,6 +740,8 @@ const PCS_FILE_NAME = "ppeplan-pcs.json";
 // Telemóveis com notificações ativas + chaves VAPID da conta; lido pelo PPEPlan-Push.ps1 no Windows
 const PUSH_FILE_NAME = "ppeplan-push.json";
 const PUSH_DEVICE_KEY = "ppeplan-push-device";
+// Página do Apps Script (appsscript/Principal.js: doGet) que ativa o envio pela Google na conta de quem a abre
+const RESUMOS_ATIVAR_URL = "https://script.google.com/a/macros/ppe.pt/s/AKfycbz7wntrv4Lf1eTLXSPjLie3QGz6WFLOSBgfcP1RXEbXoiIFZUbwmbEeGEU89LrWuDuj/exec";
 
 // alerts: lido pelo PPEPlan instalado no Windows (instalador/scripts) — emails e notificações
 const ALERT_DEFS = [
@@ -2407,10 +2409,18 @@ function renderSenderStatus(servidor) {
   const t = Date.parse(String(servidor && servidor.ultimoSinal || "").replace(/(\.\d{3})\d+/, "$1"));
   const vivo = !isNaN(t) && Date.now() - t < 3 * 3600000;
   el.style.color = "";
-  if (!google) { el.textContent = "Um PC com o PPEPlan instalado tem de estar ligado às horas dos resumos." + (vivo ? " O envio pela Google já está instalado e pronto." : ""); return; }
-  el.textContent = vivo ? `Google: ativo (${servidor.conta || ""}), último sinal a ${formatWhen(servidor.ultimoSinal)}. Não precisa de PC ligado.`
-    : "Google: o script PPEPlan ainda não deu sinal. Enquanto não der, nenhum email nem notificação sai.";
-  if (!vivo) el.style.color = "var(--danger)";
+  // Ativar numa conta: abre a página do Apps Script, que cria o acionador nessa conta (só contas ppe.pt)
+  const ativar = `<a href="${RESUMOS_ATIVAR_URL}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">${vivo ? "Reativar" : "Ativar"} o envio pela Google nesta conta</a>`;
+  if (!google) {
+    el.innerHTML = escapeHtml("Um PC com o PPEPlan instalado tem de estar ligado às horas dos resumos.") + " " +
+      (vivo ? escapeHtml("O envio pela Google já está ativo nesta conta e pronto a usar.") : ativar + escapeHtml(" (depois escolhe Google aqui)."));
+    return;
+  }
+  if (vivo) {
+    el.innerHTML = escapeHtml(`Google: ativo (${servidor.conta || ""}), último sinal a ${formatWhen(servidor.ultimoSinal)}. Não precisa de PC ligado.`);
+  } else {
+    el.innerHTML = `<span style="color:var(--danger)">${escapeHtml("Google: ainda não está ativo nesta conta — nenhum email nem notificação sai.")}</span> ` + ativar;
+  }
 }
 async function renderPushSettings(message) {
   const box = $("#s-push");
