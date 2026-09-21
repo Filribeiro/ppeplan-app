@@ -721,8 +721,8 @@
 
 <script>
 // Preenchidos pelo instalador/Publicar-App.ps1 em cada publicação com alterações à app
-const APP_VERSION = "2.20";
-const APP_PUBLISHED = "17/09/2026 09:56";
+const APP_VERSION = "2.21";
+const APP_PUBLISHED = "21/09/2026 10:46";
 const STORAGE_KEY = "ppeplan-v2";
 const DRIVE_FILE_ID_KEY = "ppeplan-drive-file-id";
 const CLIENT_ID = "423839210651-3udjtfi6o5ggtm8n456vd7va8l8ljmf4.apps.googleusercontent.com";
@@ -1358,12 +1358,18 @@ function calRefreshIfStale() {
 }
 // Trabalho planeado do dia, seguido a partir da hora de início. Fica por cima das
 // reuniões (lado a lado), porque muitas vezes as duas coisas acontecem em simultâneo.
-const CAL_WORK_START = 9 * 60;
+// Nunca fora do horário de trabalho: das 9h às 19h
+const CAL_WORK_START = 9 * 60, CAL_WORK_END = 19 * 60;
 function placeTaskBlocks(workItems, dayStart) {
+  const janela = CAL_WORK_END - CAL_WORK_START;
+  const mins = workItems.map(it => Math.max(15, Math.round((parseFloat(it.hours) || 0) * 60)));
+  const total = mins.reduce((a, b) => a + b, 0);
+  // Mais trabalho do que cabe no horário: comprime tudo na proporção, em vez de transbordar para a noite
+  const k = total > janela ? janela / total : 1;
   let cursor = CAL_WORK_START;
-  return workItems.map(it => {
-    const mins = Math.max(15, Math.round((parseFloat(it.hours) || 0) * 60));
-    const s = cursor, e = Math.min(1440, cursor + mins);
+  return workItems.map((it, i) => {
+    const dur = Math.max(6, Math.round(mins[i] * k));
+    const s = Math.min(cursor, CAL_WORK_END - dur), e = Math.min(CAL_WORK_END, s + dur);
     cursor = e;
     return { kind: "task", task: it.task, hours: it.hours, start: new Date(+dayStart + s * 60000), end: new Date(+dayStart + e * 60000) };
   }).filter(b => b.end > b.start);
